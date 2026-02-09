@@ -29,7 +29,7 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 ## Quick start
 
 ```bash
-go build -o hideTop ./cmd/hidetop/
+go build -o hideTop ./src/
 ./hideTop                     # default 1s refresh
 ./hideTop --interval 500ms    # faster refresh
 ```
@@ -38,7 +38,7 @@ go build -o hideTop ./cmd/hidetop/
 
 ```
 hideTop/
-├── cmd/hidetop/              # Entry point
+├── src/                      # Entry point
 │   └── main.go
 ├── internal/
 │   ├── app/                  # Bubble Tea model, update loop, view
@@ -72,7 +72,7 @@ hideTop/
 
 | Layer | Package | Responsibility |
 |-------|---------|---------------|
-| **Entry** | `cmd/hidetop` | Parse config, wire up Bubble Tea |
+| **Entry** | `src` | Parse config, wire up Bubble Tea |
 | **App** | `internal/app` | Bubble Tea Model / Update / View, owns the event loop |
 | **Metrics** | `internal/metrics` | CPU, memory, load, processes via gopsutil; concurrent collection |
 | **GPU** | `internal/metrics/gpu` | Apple Silicon GPU via `ioreg` + `pmset` (no sudo required) |
