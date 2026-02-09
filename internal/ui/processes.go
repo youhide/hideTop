@@ -104,12 +104,16 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 			if visible < innerW {
 				line += strings.Repeat(" ", innerW-visible)
 			}
-			line = lipgloss.NewStyle().Background(ColorSelectedBg).Render(line)
+			line = lipgloss.NewStyle().
+				Background(ColorSelectedBg).
+				Bold(true).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Render("▎" + line[1:])
 		}
 
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
 
-	return PanelStyle.Width(width).Render(b.String())
+	return PanelStyle.Width(width - 2).Render(b.String())
 }

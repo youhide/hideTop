@@ -15,7 +15,7 @@ func Collect(ctx context.Context, cpuInterval time.Duration, sortBy SortField, p
 		mu   sync.Mutex
 	)
 
-	wg.Add(5)
+	wg.Add(4)
 
 	go func() {
 		defer wg.Done()
@@ -57,14 +57,12 @@ func Collect(ctx context.Context, cpuInterval time.Duration, sortBy SortField, p
 		}
 	}()
 
-	go func() {
-		defer wg.Done()
-		g := gpu.Collect(ctx)
-		mu.Lock()
-		snap.GPU = &g
-		mu.Unlock()
-	}()
-
 	wg.Wait()
+
+	// GPU collection runs after CPU so it can use cpuTotal for energy impact.
+	// gpu.Collect runs its own sub-collectors concurrently and is fast.
+	g := gpu.Collect(ctx, snap.CPU.Total)
+	snap.GPU = &g
+
 	return snap
 }

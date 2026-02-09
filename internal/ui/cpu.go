@@ -12,6 +12,10 @@ func RenderCPU(cpu metrics.CPUStats, width int) string {
 	var b strings.Builder
 
 	b.WriteString(HeaderStyle.Render("CPU"))
+	n := len(cpu.PerCore)
+	if n > 0 {
+		b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %d cores", n)))
+	}
 	b.WriteByte('\n')
 
 	totalLabel := fmt.Sprintf("TOTAL %5.1f%%", cpu.Total)
@@ -19,7 +23,6 @@ func RenderCPU(cpu metrics.CPUStats, width int) string {
 	b.WriteByte('\n')
 
 	// Two-column layout: left = cpu0..cpu4, right = cpu5..cpu9
-	n := len(cpu.PerCore)
 	half := (n + 1) / 2
 	colWidth := (width - 6) / 2
 
@@ -45,7 +48,7 @@ func RenderCPU(cpu metrics.CPUStats, width int) string {
 	b.WriteString(cols)
 	b.WriteByte('\n')
 
-	return PanelStyle.Width(width).Render(b.String())
+	return PanelStyle.Width(width - 2).Render(b.String())
 }
 
 func renderBar(pct float64, label string, maxWidth int) string {

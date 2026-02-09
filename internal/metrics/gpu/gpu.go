@@ -18,6 +18,49 @@ type Stats struct {
 	Available    bool
 	Utilization  float64
 	FrequencyMHz int
+	CoreCount    int
+	Engines      []EngineStats
+	Thermal      ThermalState
+	ThermalOK    bool
+	Energy       EnergyImpact
+}
+
+// EngineStats represents a single GPU engine's utilization.
+type EngineStats struct {
+	Name        string
+	Utilization float64 // 0-100
+}
+
+// ThermalState represents the system thermal pressure level.
+type ThermalState int
+
+const (
+	ThermalNominal  ThermalState = iota // normal
+	ThermalFair                         // moderate pressure
+	ThermalSerious                      // heavy pressure
+	ThermalCritical                     // critical / throttling
+)
+
+// String returns a human-readable label for the thermal state.
+func (t ThermalState) String() string {
+	switch t {
+	case ThermalFair:
+		return "fair"
+	case ThermalSerious:
+		return "serious"
+	case ThermalCritical:
+		return "critical"
+	default:
+		return "nominal"
+	}
+}
+
+// EnergyImpact holds an approximate energy impact score.
+// This is a heuristic inspired by macOS Activity Monitor,
+// NOT an official Apple metric.
+type EnergyImpact struct {
+	Score     float64 // 0-100
+	Available bool
 }
 
 // supported reports whether the current platform can provide GPU metrics.
@@ -49,44 +92,49 @@ func isAvailable() bool {
 
 // Collect gathers GPU metrics. It is safe to call from any platform;
 // on unsupported systems it immediately returns Stats{Available: false}.
-func Collect(ctx context.Context) Stats {
+func Collect(ctx context.Context, cpuTotal float64) Stats {
 	if !isAvailable() {
 		return Stats{}
 	}
 
 	s := Stats{Available: true}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	// Single ioreg call — parse all GPU data from one invocation.
+	var ioregData []byte
+	func() {
+		ioCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ioCtx, "ioreg", "-r", "-c", "AGXAccelerator").Output()
+		if err == nil {
+			ioregData = out
+		}
+	}()
 
-	go func() {
-		defer wg.Done()
-		if util, ok := collectUtilization(ctx); ok {
+	if len(ioregData) > 0 {
+		if util, ok := parseUtilization(ioregData); ok {
 			s.Utilization = util
 		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		if freq, ok := collectFrequency(ctx); ok {
+		if freq, ok := parseFrequency(ioregData); ok {
 			s.FrequencyMHz = freq
 		}
-	}()
-
-	wg.Wait()
-	return s
-}
-
-func collectUtilization(ctx context.Context) (float64, bool) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	out, err := exec.CommandContext(ctx, "ioreg", "-r", "-d", "1", "-c", "AGXAccelerator").Output()
-	if err != nil {
-		return 0, false
+		if engines := parseEnginesFromIOReg(ioregData); len(engines) > 0 {
+			s.Engines = engines
+		}
+		if cores, ok := parseCoreCount(ioregData); ok {
+			s.CoreCount = cores
+		}
 	}
 
-	return parseUtilization(out)
+	// Thermal runs via pmset (separate command), concurrently is fine.
+	if state, ok := collectThermal(ctx); ok {
+		s.Thermal = state
+		s.ThermalOK = true
+	}
+
+	// Compute energy impact after all data is collected.
+	s.Energy = computeEnergyImpact(cpuTotal, s.Utilization, true, s.Thermal)
+
+	return s
 }
 
 var utilRe = regexp.MustCompile(`(?i)(?:device utilization|gpu[- ]utilization)[^"]*"?\s*(?:%\s*)?=\s*(\d+)`)
@@ -103,16 +151,18 @@ func parseUtilization(data []byte) (float64, bool) {
 	return v, true
 }
 
-func collectFrequency(ctx context.Context) (int, bool) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
+var coreCountRe = regexp.MustCompile(`"gpu-core-count"\s*=\s*(\d+)`)
 
-	out, err := exec.CommandContext(ctx, "ioreg", "-r", "-d", "1", "-c", "AGXAccelerator").Output()
+func parseCoreCount(data []byte) (int, bool) {
+	m := coreCountRe.FindSubmatch(data)
+	if m == nil {
+		return 0, false
+	}
+	v, err := strconv.Atoi(string(m[1]))
 	if err != nil {
 		return 0, false
 	}
-
-	return parseFrequency(out)
+	return v, true
 }
 
 var freqPatterns = []string{

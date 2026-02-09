@@ -10,7 +10,7 @@ var (
 	ColorSubtle     = lipgloss.Color("#6B7280")
 	ColorBorder     = lipgloss.Color("#3F3F46")
 	ColorHeader     = lipgloss.Color("#D4D4D8")
-	ColorSelectedBg = lipgloss.Color("#2D2D3D")
+	ColorSelectedBg = lipgloss.Color("#3B3B5C")
 )
 
 var (
