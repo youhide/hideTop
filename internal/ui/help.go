@@ -8,11 +8,11 @@ import (
 
 func RenderHelp(width int) string {
 	keys := []struct{ key, desc string }{
-		{"q", "quit"},
-		{"c", "sort cpu"},
-		{"m", "sort mem"},
-		{"p", "sort pid"},
+		{"↑↓/jk", "move"},
+		{"/", "search"},
+		{"c/m/p", "sort"},
 		{"+/-", "interval"},
+		{"q", "quit"},
 	}
 
 	var line string

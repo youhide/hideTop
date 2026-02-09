@@ -16,6 +16,15 @@ func RenderMemory(mem metrics.MemoryStats, load metrics.LoadAvg, width int) stri
 	label := fmt.Sprintf("used  %5.1f%%  %.1f / %.1f GiB", mem.Percent, mem.UsedGB, mem.TotalGB)
 	b.WriteString(renderBar(mem.Percent, label, width-4))
 	b.WriteByte('\n')
+	b.WriteString(SubtleStyle.Render(
+		fmt.Sprintf("  available: %.1f GiB", mem.AvailableGB),
+	))
+	b.WriteByte('\n')
+	if mem.SwapTotalGB > 0 {
+		swapLabel := fmt.Sprintf("swap  %5.1f%%  %.1f / %.1f GiB", mem.SwapPercent, mem.SwapUsedGB, mem.SwapTotalGB)
+		b.WriteString(renderBar(mem.SwapPercent, swapLabel, width-4))
+		b.WriteByte('\n')
+	}
 	b.WriteByte('\n')
 
 	b.WriteString(HeaderStyle.Render("Load Average"))

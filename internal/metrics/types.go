@@ -6,9 +6,13 @@ type CPUStats struct {
 }
 
 type MemoryStats struct {
-	TotalGB float64
-	UsedGB  float64
-	Percent float64
+	TotalGB     float64
+	UsedGB      float64
+	AvailableGB float64
+	Percent     float64
+	SwapTotalGB float64
+	SwapUsedGB  float64
+	SwapPercent float64
 }
 
 type LoadAvg struct {

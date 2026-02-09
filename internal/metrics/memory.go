@@ -14,11 +14,21 @@ func CollectMemory(ctx context.Context) (MemoryStats, error) {
 	}
 
 	const gb = 1 << 30
-	return MemoryStats{
-		TotalGB: float64(vm.Total) / gb,
-		UsedGB:  float64(vm.Used) / gb,
-		Percent: vm.UsedPercent,
-	}, nil
+	ms := MemoryStats{
+		TotalGB:     float64(vm.Total) / gb,
+		UsedGB:      float64(vm.Used) / gb,
+		AvailableGB: float64(vm.Available) / gb,
+		Percent:     vm.UsedPercent,
+	}
+
+	sw, err := mem.SwapMemoryWithContext(ctx)
+	if err == nil && sw.Total > 0 {
+		ms.SwapTotalGB = float64(sw.Total) / gb
+		ms.SwapUsedGB = float64(sw.Used) / gb
+		ms.SwapPercent = sw.UsedPercent
+	}
+
+	return ms, nil
 }
 
 func CollectLoad(ctx context.Context) (LoadAvg, error) {

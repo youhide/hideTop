@@ -14,8 +14,8 @@ func RenderCPU(cpu metrics.CPUStats, width int) string {
 	b.WriteString(HeaderStyle.Render("CPU"))
 	b.WriteByte('\n')
 
-	totalLabel := fmt.Sprintf("total %5.1f%%", cpu.Total)
-	b.WriteString(renderBar(cpu.Total, totalLabel, width-4))
+	totalLabel := fmt.Sprintf("TOTAL %5.1f%%", cpu.Total)
+	b.WriteString(lipgloss.NewStyle().Bold(true).Render(renderBar(cpu.Total, totalLabel, width-4)))
 	b.WriteByte('\n')
 
 	// Two-column layout: left = cpu0..cpu4, right = cpu5..cpu9
