@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/youhide/hideTop/internal/metrics/gpu"
 )
 
 func Collect(ctx context.Context, cpuInterval time.Duration, sortBy SortField, procLimit int) Snapshot {
@@ -13,7 +15,7 @@ func Collect(ctx context.Context, cpuInterval time.Duration, sortBy SortField, p
 		mu   sync.Mutex
 	)
 
-	wg.Add(4)
+	wg.Add(5)
 
 	go func() {
 		defer wg.Done()
@@ -53,6 +55,14 @@ func Collect(ctx context.Context, cpuInterval time.Duration, sortBy SortField, p
 			snap.Processes = p
 			mu.Unlock()
 		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		g := gpu.Collect(ctx)
+		mu.Lock()
+		snap.GPU = &g
+		mu.Unlock()
 	}()
 
 	wg.Wait()

@@ -98,6 +98,7 @@ func (m Model) View() string {
 	}
 
 	cpuPanel := ui.RenderCPU(m.snap.CPU, w)
+	gpuPanel := ui.RenderGPU(m.snap.GPU, w)
 	memPanel := ui.RenderMemory(m.snap.Memory, m.snap.Load, w)
 
 	// Filter processes and resolve PID-based selection
@@ -114,6 +115,9 @@ func (m Model) View() string {
 	// Count actual lines used by fixed panels
 	usedLines := strings.Count(header, "\n") + 1
 	usedLines += strings.Count(cpuPanel, "\n") + 1
+	if gpuPanel != "" {
+		usedLines += strings.Count(gpuPanel, "\n") + 1
+	}
 	usedLines += strings.Count(memPanel, "\n") + 1
 	usedLines += 1 // help bar
 
@@ -128,13 +132,13 @@ func (m Model) View() string {
 	procPanel := ui.RenderProcesses(procs, procState, w, procRows)
 	helpBar := ui.RenderHelp(w)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		cpuPanel,
-		memPanel,
-		procPanel,
-		helpBar,
-	)
+	panels := []string{header, cpuPanel}
+	if gpuPanel != "" {
+		panels = append(panels, gpuPanel)
+	}
+	panels = append(panels, memPanel, procPanel, helpBar)
+
+	return lipgloss.JoinVertical(lipgloss.Left, panels...)
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

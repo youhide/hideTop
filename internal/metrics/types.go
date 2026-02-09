@@ -33,4 +33,5 @@ type Snapshot struct {
 	Memory    MemoryStats
 	Load      LoadAvg
 	Processes []ProcessInfo
+	GPU       interface{} // *gpu.Stats when available; avoids import cycle
 }
