@@ -10,12 +10,11 @@ import (
 
 // RenderGPU renders the GPU panel. Returns an empty string when GPU
 // metrics are unavailable, causing no visual output.
-func RenderGPU(raw interface{}, width int) string {
-	if raw == nil {
+func RenderGPU(stats *gpu.Stats, width int) string {
+	if stats == nil {
 		return ""
 	}
-	stats, ok := raw.(*gpu.Stats)
-	if !ok || !stats.Available {
+	if !stats.Available {
 		return ""
 	}
 

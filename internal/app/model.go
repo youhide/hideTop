@@ -21,16 +21,18 @@ type snapshotMsg metrics.Snapshot
 type flashDoneMsg struct{}
 
 type Model struct {
-	cfg          config.Config
-	snap         metrics.Snapshot
-	sortBy       metrics.SortField
-	width        int
-	height       int
-	quitting     bool
-	selectedPID  int32
-	searching    bool
-	searchQuery  string
-	refreshFlash bool
+	cfg           config.Config
+	snap          metrics.Snapshot
+	sortBy        metrics.SortField
+	width         int
+	height        int
+	quitting      bool
+	selectedPID   int32
+	searching     bool
+	searchQuery   string
+	refreshFlash  bool
+	collecting    bool
+	collectCancel context.CancelFunc
 }
 
 func New(cfg config.Config) Model {
@@ -55,12 +57,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tickMsg:
-		return m, tea.Batch(
-			collectSnapshot(m.sortBy),
-			tick(m.cfg.RefreshInterval),
-		)
+		cmds := []tea.Cmd{tick(m.cfg.RefreshInterval)}
+		if !m.collecting {
+			ctx, cancel := context.WithTimeout(context.Background(), m.collectionTimeout())
+			m.collectCancel = cancel
+			m.collecting = true
+			cmds = append(cmds, collectSnapshot(ctx, m.sortBy, m.snap, m.processSampleEvery()))
+		}
+		return m, tea.Batch(cmds...)
 
 	case snapshotMsg:
+		if m.collectCancel != nil {
+			m.collectCancel()
+			m.collectCancel = nil
+		}
+		m.collecting = false
 		m.snap = metrics.Snapshot(msg)
 		return m, nil
 
@@ -86,7 +97,7 @@ func (m Model) View() string {
 		h = 24
 	}
 
-	// Header with refresh interval; briefly highlighted on change
+	// Header with refresh interval; briefly highlighted on change.
 	refreshLabel := fmt.Sprintf("  refresh %s", m.cfg.RefreshInterval)
 	var header string
 	if m.refreshFlash {
@@ -96,12 +107,18 @@ func (m Model) View() string {
 		header = ui.TitleStyle.Render("hideTop") +
 			ui.SubtleStyle.Render(refreshLabel)
 	}
+	if m.collecting {
+		header += ui.SubtleStyle.Render("  collecting")
+	}
+	if stale := m.snap.Status.StaleMetrics(); len(stale) > 0 {
+		header += "  " + lipgloss.NewStyle().Bold(true).Foreground(ui.ColorYellow).Render("stale:"+strings.Join(stale, ","))
+	}
 
 	cpuPanel := ui.RenderCPU(m.snap.CPU, w)
 	gpuPanel := ui.RenderGPU(m.snap.GPU, w)
 	memPanel := ui.RenderMemory(m.snap.Memory, m.snap.Load, w)
 
-	// Filter processes and resolve PID-based selection
+	// Filter processes and resolve PID-based selection.
 	procs := m.filteredProcesses()
 	selectedIdx := m.findSelectionIndex(procs)
 
@@ -112,7 +129,7 @@ func (m Model) View() string {
 		Searching:   m.searching,
 	}
 
-	// Count actual lines used by fixed panels
+	// Count actual lines used by fixed panels.
 	usedLines := strings.Count(header, "\n") + 1
 	usedLines += strings.Count(cpuPanel, "\n") + 1
 	if gpuPanel != "" {
@@ -121,7 +138,7 @@ func (m Model) View() string {
 	usedLines += strings.Count(memPanel, "\n") + 1
 	usedLines += 1 // help bar
 
-	// Render a dummy process panel with 0 rows to measure its overhead
+	// Render a dummy process panel with 0 rows to measure its overhead.
 	emptyProc := ui.RenderProcesses(nil, procState, w, 0)
 	procOverhead := strings.Count(emptyProc, "\n") + 1
 
@@ -149,6 +166,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		m.quitting = true
+		if m.collectCancel != nil {
+			m.collectCancel()
+			m.collectCancel = nil
+		}
 		return m, tea.Quit
 	case "c":
 		m.sortBy = metrics.SortByCPU
@@ -201,8 +222,9 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		m.searching = false
 	case tea.KeyBackspace:
-		if len(m.searchQuery) > 0 {
-			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+		r := []rune(m.searchQuery)
+		if len(r) > 0 {
+			m.searchQuery = string(r[:len(r)-1])
 		}
 	case tea.KeyUp:
 		procs := m.filteredProcesses()
@@ -262,16 +284,34 @@ func (m Model) findSelectionIndex(procs []metrics.ProcessInfo) int {
 	return 0
 }
 
+func (m Model) collectionTimeout() time.Duration {
+	timeout := m.cfg.RefreshInterval * 2
+	if timeout < time.Second {
+		timeout = time.Second
+	}
+	if timeout > 5*time.Second {
+		timeout = 5 * time.Second
+	}
+	return timeout
+}
+
+func (m Model) processSampleEvery() time.Duration {
+	sampleEvery := 2 * time.Second
+	if m.cfg.RefreshInterval > sampleEvery {
+		return m.cfg.RefreshInterval
+	}
+	return sampleEvery
+}
+
 func tick(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
 
-func collectSnapshot(sortBy metrics.SortField) tea.Cmd {
+func collectSnapshot(ctx context.Context, sortBy metrics.SortField, previous metrics.Snapshot, processSampleEvery time.Duration) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
-		snap := metrics.Collect(ctx, 200*time.Millisecond, sortBy, 50)
+		snap := metrics.Collect(ctx, 200*time.Millisecond, sortBy, 50, processSampleEvery, previous)
 		return snapshotMsg(snap)
 	}
 }

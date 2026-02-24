@@ -90,5 +90,5 @@ Key design decisions:
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.25+
 - macOS or Linux (GPU panel requires Apple Silicon)

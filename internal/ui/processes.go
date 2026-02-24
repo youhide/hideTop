@@ -57,7 +57,11 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 	b.WriteString(hdr)
 	b.WriteByte('\n')
 
-	sep := SubtleStyle.Render(strings.Repeat("─", width-4))
+	sepWidth := width - 4
+	if sepWidth < 1 {
+		sepWidth = 1
+	}
+	sep := SubtleStyle.Render(strings.Repeat("─", sepWidth))
 	b.WriteString(sep)
 	b.WriteByte('\n')
 
@@ -84,10 +88,7 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 	innerW := width - 4
 	for i := start; i < end; i++ {
 		p := procs[i]
-		name := p.Name
-		if len(name) > 24 {
-			name = name[:21] + "..."
-		}
+		name := truncateRunes(p.Name, 24)
 
 		cpuColor := BarColor(p.CPUPercent)
 		memColor := BarColor(float64(p.MemPercent))
@@ -104,11 +105,12 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 			if visible < innerW {
 				line += strings.Repeat(" ", innerW-visible)
 			}
+			line = strings.TrimPrefix(line, " ")
 			line = lipgloss.NewStyle().
 				Background(ColorSelectedBg).
 				Bold(true).
 				Foreground(lipgloss.Color("#FFFFFF")).
-				Render("▎" + line[1:])
+				Render("▎" + line)
 		}
 
 		b.WriteString(line)
@@ -116,4 +118,19 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 	}
 
 	return PanelStyle.Width(width - 2).Render(b.String())
+}
+
+func truncateRunes(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return string(r[:maxRunes])
+	}
+	return string(r[:maxRunes-3]) + "..."
 }

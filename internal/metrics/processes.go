@@ -15,39 +15,70 @@ const (
 	SortByPID
 )
 
+type processSample struct {
+	process *process.Process
+	pid     int32
+	cpu     float64
+	mem     float32
+}
+
 func CollectProcesses(ctx context.Context, sortBy SortField, limit int) ([]ProcessInfo, error) {
 	procs, err := process.ProcessesWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	infos := make([]ProcessInfo, 0, len(procs))
+	samples := make([]processSample, 0, len(procs))
 	for _, p := range procs {
-		name, _ := p.NameWithContext(ctx)
-		cpuPct, _ := p.CPUPercentWithContext(ctx)
-		memPct, _ := p.MemoryPercentWithContext(ctx)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 
-		infos = append(infos, ProcessInfo{
-			PID:        p.Pid,
-			Name:       name,
-			CPUPercent: cpuPct,
-			MemPercent: memPct,
+		cpuPct, cpuErr := p.CPUPercentWithContext(ctx)
+		memPct, memErr := p.MemoryPercentWithContext(ctx)
+		if cpuErr != nil && memErr != nil {
+			continue
+		}
+
+		samples = append(samples, processSample{
+			process: p,
+			pid:     p.Pid,
+			cpu:     cpuPct,
+			mem:     memPct,
 		})
 	}
 
-	sort.Slice(infos, func(i, j int) bool {
+	sort.Slice(samples, func(i, j int) bool {
 		switch sortBy {
 		case SortByMem:
-			return infos[i].MemPercent > infos[j].MemPercent
+			return samples[i].mem > samples[j].mem
 		case SortByPID:
-			return infos[i].PID < infos[j].PID
+			return samples[i].pid < samples[j].pid
 		default:
-			return infos[i].CPUPercent > infos[j].CPUPercent
+			return samples[i].cpu > samples[j].cpu
 		}
 	})
 
-	if limit > 0 && limit < len(infos) {
-		infos = infos[:limit]
+	if limit > 0 && limit < len(samples) {
+		samples = samples[:limit]
 	}
+
+	infos := make([]ProcessInfo, 0, len(samples))
+	for _, sample := range samples {
+		name, _ := sample.process.NameWithContext(ctx)
+		if name == "" {
+			name = "?"
+		}
+
+		infos = append(infos, ProcessInfo{
+			PID:        sample.pid,
+			Name:       name,
+			CPUPercent: sample.cpu,
+			MemPercent: sample.mem,
+		})
+	}
+
 	return infos, nil
 }
