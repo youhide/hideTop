@@ -10,8 +10,15 @@ import (
 	"github.com/youhide/hideTop/internal/config"
 )
 
+var Version = "dev"
+
 func main() {
 	cfg := config.Parse()
+	if cfg.ShowVersion {
+		fmt.Printf("hideTop %s\n", Version)
+		return
+	}
+
 	m := app.New(cfg)
 
 	p := tea.NewProgram(m,

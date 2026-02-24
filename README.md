@@ -32,6 +32,9 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 go build -o hideTop ./src/
 ./hideTop                     # default 1s refresh
 ./hideTop --interval 500ms    # faster refresh
+./hideTop --version           # print version and exit
+# local build with git tag in --version:
+go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)" -o hideTop ./src/
 ```
 
 ## Project structure
