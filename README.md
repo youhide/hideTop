@@ -26,6 +26,13 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 | `+` `-` | Increase / decrease refresh interval |
 | `q` / `Ctrl+C` | Quit |
 
+## Installation
+
+```bash
+brew tap youhide/homebrew-youhide
+brew install hidetop
+```
+
 ## Quick start
 
 ```bash
