@@ -80,8 +80,8 @@ func ComputeNetworkDelta(current, previous NetworkStats, intervalSecs float64) N
 
 	delta := NetworkDelta{
 		Available:   true,
-		TotalInSec:  float64(current.TotalIn-previous.TotalIn) / intervalSecs,
-		TotalOutSec: float64(current.TotalOut-previous.TotalOut) / intervalSecs,
+		TotalInSec:  safeDeltaRate(current.TotalIn, previous.TotalIn, intervalSecs),
+		TotalOutSec: safeDeltaRate(current.TotalOut, previous.TotalOut, intervalSecs),
 	}
 
 	// Build a map of previous interface stats for lookup
@@ -97,10 +97,19 @@ func ComputeNetworkDelta(current, previous NetworkStats, intervalSecs float64) N
 		}
 		delta.Interfaces = append(delta.Interfaces, InterfaceDelta{
 			Name:   cur.Name,
-			InSec:  float64(cur.BytesIn-prev.BytesIn) / intervalSecs,
-			OutSec: float64(cur.BytesOut-prev.BytesOut) / intervalSecs,
+			InSec:  safeDeltaRate(cur.BytesIn, prev.BytesIn, intervalSecs),
+			OutSec: safeDeltaRate(cur.BytesOut, prev.BytesOut, intervalSecs),
 		})
 	}
 
 	return delta
+}
+
+// safeDeltaRate computes (current - previous) / interval, returning 0
+// when counters have wrapped (e.g. after a reboot).
+func safeDeltaRate(current, previous uint64, intervalSecs float64) float64 {
+	if current < previous {
+		return 0
+	}
+	return float64(current-previous) / intervalSecs
 }

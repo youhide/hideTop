@@ -16,6 +16,7 @@ type Config struct {
 	NoGPU           bool
 	NoTemp          bool
 	FilterUsers     []string
+	ProcLimit       int
 }
 
 // DefaultFilterUsers is used when no custom filter is configured.
@@ -29,6 +30,7 @@ type fileConfig struct {
 	NoTemp      bool     `json:"no_temp"`
 	Debug       bool     `json:"debug"`
 	FilterUsers []string `json:"filter_users"`
+	ProcLimit   int      `json:"proc_limit"`
 }
 
 func Parse() Config {
@@ -40,6 +42,7 @@ func Parse() Config {
 	theme := flag.String("theme", "", "color theme (dark, light, dracula, nord, monokai)")
 	noGPU := flag.Bool("no-gpu", false, "disable GPU metrics")
 	noTemp := flag.Bool("no-temp", false, "disable temperature metrics")
+	procLimit := flag.Int("proc-limit", 0, "max number of processes to display (0 = 50)")
 	flag.Parse()
 
 	cfg := Config{
@@ -49,6 +52,7 @@ func Parse() Config {
 		Theme:           *theme,
 		NoGPU:           *noGPU,
 		NoTemp:          *noTemp,
+		ProcLimit:       *procLimit,
 	}
 
 	// Load config file (flags take precedence)
@@ -83,6 +87,14 @@ func Parse() Config {
 	}
 	if len(cfg.FilterUsers) == 0 {
 		cfg.FilterUsers = DefaultFilterUsers
+	}
+
+	// Apply proc_limit from config file if not set via CLI
+	if fc != nil && cfg.ProcLimit == 0 && fc.ProcLimit > 0 {
+		cfg.ProcLimit = fc.ProcLimit
+	}
+	if cfg.ProcLimit <= 0 {
+		cfg.ProcLimit = 50
 	}
 
 	return cfg

@@ -61,10 +61,7 @@ func formatBytes(bytes float64) string {
 	}
 }
 
-// truncateStr truncates a string to maxLen bytes.
+// truncateStr truncates a string to maxLen runes, preserving valid UTF-8.
 func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
+	return truncateRunes(s, maxLen)
 }

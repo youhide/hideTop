@@ -1,6 +1,12 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Theme defines a color palette for the UI.
 type Theme struct {
@@ -87,6 +93,8 @@ func AvailableThemes() []string {
 func ApplyTheme(name string) {
 	t, ok := themes[name]
 	if !ok {
+		avail := strings.Join(AvailableThemes(), ", ")
+		fmt.Fprintf(os.Stderr, "hideTop: unknown theme %q, falling back to \"dark\" (available: %s)\n", name, avail)
 		t = themes["dark"]
 	}
 

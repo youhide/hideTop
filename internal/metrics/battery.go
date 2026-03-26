@@ -76,11 +76,7 @@ func collectBatteryDarwin(_ context.Context) (BatteryStats, error) {
 
 	s := string(out)
 	stats := BatteryStats{}
-
-	// Parse: "Now drawing from 'Battery Power'" or "'AC Power'"
-	if strings.Contains(s, "'AC Power'") {
-		stats.Charging = true
-	}
+	onAC := strings.Contains(s, "'AC Power'")
 
 	// Parse percentage: "InternalBattery-0 (id=...)	85%; charging; ..."
 	for _, line := range strings.Split(s, "\n") {
@@ -116,6 +112,9 @@ func collectBatteryDarwin(_ context.Context) (BatteryStats, error) {
 		case strings.Contains(lower, "charged"):
 			stats.Status = "Full"
 			stats.Charging = false
+		default:
+			// No explicit status found; infer from power source
+			stats.Charging = onAC
 		}
 		break
 	}

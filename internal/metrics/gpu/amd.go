@@ -63,7 +63,7 @@ func (b *AMDBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 		s.Name = strings.TrimSpace(string(name))
 	}
 
-	s.Energy = computeEnergyImpact(cpuTotal, s.Utilization, true, s.Thermal)
+	s.Energy = ComputeEnergyImpact(cpuTotal, s.Utilization, true, s.Thermal)
 	return s
 }
 

@@ -101,7 +101,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ctx, cancel := context.WithTimeout(context.Background(), m.collectionTimeout())
 			m.collectCancel = cancel
 			m.collecting = true
-			cmds = append(cmds, collectSnapshot(ctx, m.sortBy, m.snap, m.processSampleEvery(), metrics.CollectOptions{
+			cmds = append(cmds, collectSnapshot(ctx, m.sortBy, m.snap, m.processSampleEvery(), m.cfg.ProcLimit, metrics.CollectOptions{
 				SkipGPU:  m.cfg.NoGPU,
 				SkipTemp: m.cfg.NoTemp,
 			}))
@@ -217,22 +217,7 @@ func (m Model) View() string {
 	}
 
 	// Render panels at appropriate widths
-	cpuPanel := ui.RenderCPU(m.snap.CPU, colL, m.cpuHistory)
-	gpuPanel := ui.RenderGPU(m.snap.GPU, colR, m.gpuHistory)
-	tempPanel := ui.RenderTemperature(m.snap.Temperature, colR)
-	netPanel := ui.RenderNetwork(m.netDelta, colL)
-	diskPanel := ui.RenderDisk(m.diskDelta, m.snap.Disk, colR)
-
-	// Memory panel width depends on whether GPU is present (left vs right column)
-	var memPanel string
-	if twoCol && gpuPanel != "" {
-		memPanel = ui.RenderMemory(m.snap.Memory, m.snap.Load, colL, m.memHistory)
-	} else if twoCol {
-		// No GPU: memory goes to the right of CPU
-		memPanel = ui.RenderMemory(m.snap.Memory, m.snap.Load, colR, m.memHistory)
-	} else {
-		memPanel = ui.RenderMemory(m.snap.Memory, m.snap.Load, colL, m.memHistory)
-	}
+	metricsSection := m.buildMetricsSection(colL, colR, twoCol)
 
 	// Filter processes and resolve PID-based selection.
 	procs := m.filteredProcesses()
@@ -247,57 +232,6 @@ func (m Model) View() string {
 		HideSystem:  m.hideSystem,
 		TotalProcs:  len(m.snap.Processes),
 	}
-
-	// Build the metric panels section
-	var metricRows []string
-
-	if twoCol {
-		// Two-column layout: pair panels side by side with matched heights
-		// Row 1: CPU | GPU (or Memory if no GPU)
-		if gpuPanel != "" {
-			metricRows = append(metricRows, joinPanelRow(cpuPanel, gpuPanel, colL, colR))
-		} else {
-			metricRows = append(metricRows, joinPanelRow(cpuPanel, memPanel, colL, colR))
-		}
-
-		// Row 2: Memory | Temperature (only if GPU existed in row 1)
-		if gpuPanel != "" {
-			if tempPanel != "" {
-				metricRows = append(metricRows, joinPanelRow(memPanel, tempPanel, colL, colR))
-			} else {
-				metricRows = append(metricRows, memPanel)
-			}
-		} else if tempPanel != "" {
-			metricRows = append(metricRows, tempPanel)
-		}
-
-		// Row 3: Network | Disk
-		if netPanel != "" && diskPanel != "" {
-			metricRows = append(metricRows, joinPanelRow(netPanel, diskPanel, colL, colR))
-		} else if netPanel != "" {
-			metricRows = append(metricRows, netPanel)
-		} else if diskPanel != "" {
-			metricRows = append(metricRows, diskPanel)
-		}
-	} else {
-		// Single-column stacked layout
-		metricRows = append(metricRows, cpuPanel)
-		if gpuPanel != "" {
-			metricRows = append(metricRows, gpuPanel)
-		}
-		metricRows = append(metricRows, memPanel)
-		if tempPanel != "" {
-			metricRows = append(metricRows, tempPanel)
-		}
-		if netPanel != "" {
-			metricRows = append(metricRows, netPanel)
-		}
-		if diskPanel != "" {
-			metricRows = append(metricRows, diskPanel)
-		}
-	}
-
-	metricsSection := lipgloss.JoinVertical(lipgloss.Left, metricRows...)
 
 	// Count lines used by fixed panels to size the process panel.
 	usedLines := strings.Count(header, "\n") + 1
@@ -507,9 +441,6 @@ func (m Model) computeUsedLines() int {
 		w = 80
 	}
 
-	// Header is always 1 line
-	usedLines := 1
-
 	twoCol := w >= 110
 	var colL, colR int
 	if twoCol {
@@ -520,6 +451,20 @@ func (m Model) computeUsedLines() int {
 		colR = w
 	}
 
+	metricsSection := m.buildMetricsSection(colL, colR, twoCol)
+
+	// Header is always 1 line
+	usedLines := 1
+	usedLines += strings.Count(metricsSection, "\n") + 1
+	usedLines += 1 // help bar
+
+	return usedLines
+}
+
+// buildMetricsSection renders all metric panels and joins them into a single string.
+// This is the single source of truth for panel layout, used by both View() and
+// computeUsedLines() to avoid duplication.
+func (m Model) buildMetricsSection(colL, colR int, twoCol bool) string {
 	cpuPanel := ui.RenderCPU(m.snap.CPU, colL, m.cpuHistory)
 	gpuPanel := ui.RenderGPU(m.snap.GPU, colR, m.gpuHistory)
 	tempPanel := ui.RenderTemperature(m.snap.Temperature, colR)
@@ -536,6 +481,7 @@ func (m Model) computeUsedLines() int {
 	}
 
 	var metricRows []string
+
 	if twoCol {
 		if gpuPanel != "" {
 			metricRows = append(metricRows, joinPanelRow(cpuPanel, gpuPanel, colL, colR))
@@ -575,11 +521,7 @@ func (m Model) computeUsedLines() int {
 		}
 	}
 
-	metricsSection := lipgloss.JoinVertical(lipgloss.Left, metricRows...)
-	usedLines += strings.Count(metricsSection, "\n") + 1
-	usedLines += 1 // help bar
-
-	return usedLines
+	return lipgloss.JoinVertical(lipgloss.Left, metricRows...)
 }
 
 // computeProcDataY returns the Y line where process data rows begin on screen.
@@ -591,6 +533,13 @@ func (m Model) computeProcDataY() int {
 
 func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
+	case tea.KeyCtrlC:
+		m.quitting = true
+		if m.collectCancel != nil {
+			m.collectCancel()
+			m.collectCancel = nil
+		}
+		return m, tea.Quit
 	case tea.KeyEscape:
 		m.searching = false
 		m.searchQuery = ""
@@ -724,9 +673,9 @@ func tick(d time.Duration) tea.Cmd {
 	})
 }
 
-func collectSnapshot(ctx context.Context, sortBy metrics.SortField, previous metrics.Snapshot, processSampleEvery time.Duration, opts metrics.CollectOptions) tea.Cmd {
+func collectSnapshot(ctx context.Context, sortBy metrics.SortField, previous metrics.Snapshot, processSampleEvery time.Duration, procLimit int, opts metrics.CollectOptions) tea.Cmd {
 	return func() tea.Msg {
-		snap := metrics.Collect(ctx, 200*time.Millisecond, sortBy, 50, processSampleEvery, previous, opts)
+		snap := metrics.Collect(ctx, 200*time.Millisecond, sortBy, procLimit, processSampleEvery, previous, opts)
 		return snapshotMsg(snap)
 	}
 }
@@ -766,12 +715,18 @@ func (m Model) killSelectedProcess(sig killSignal) string {
 }
 
 func (m Model) exportSnapshot() string {
-	filename := fmt.Sprintf("hideTop_%s.json", m.snap.CollectedAt.Format("20060102_150405"))
+	basename := fmt.Sprintf("hideTop_%s.json", m.snap.CollectedAt.Format("20060102_150405"))
+	// Write to user's home directory for a predictable location.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	filename := home + string(os.PathSeparator) + basename
 	data, err := json.MarshalIndent(m.snap, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("export error: %v", err)
 	}
-	if err := os.WriteFile(filename, data, 0o644); err != nil {
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
 		return fmt.Sprintf("export error: %v", err)
 	}
 	return fmt.Sprintf("exported to %s", filename)

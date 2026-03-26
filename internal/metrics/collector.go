@@ -37,11 +37,15 @@ func Collect(
 	)
 
 	processesDue := shouldCollectProcesses(now, processSampleEvery, sortBy, previous)
-	workers := 5 // cpu, memory, load, network, disk, battery — adjusted below
+
+	// Count workers: cpu + memory + load + network + disk + battery = 6
+	workers := 6
 	if !opts.SkipTemp {
 		workers++
 	}
-	workers++ // battery
+	if !opts.SkipGPU {
+		workers++
+	}
 	if processesDue {
 		workers++
 	} else {
@@ -180,17 +184,27 @@ func Collect(
 		}()
 	}
 
+	if !opts.SkipGPU {
+		go func() {
+			defer wg.Done()
+			g := gpu.Collect(ctx, 0) // cpuTotal not needed for raw GPU metrics
+			mu.Lock()
+			defer mu.Unlock()
+			if g.Available {
+				snap.GPU = &g
+			} else if previous.GPU != nil && previous.GPU.Available {
+				snap.GPU = previous.GPU
+				snap.Status.GPU = staleStatus(errors.New("collector unavailable"))
+			}
+		}()
+	}
+
 	wg.Wait()
 
-	// GPU collection runs after CPU so it can use cpuTotal for energy impact.
-	if !opts.SkipGPU {
-		g := gpu.Collect(ctx, snap.CPU.Total)
-		if g.Available {
-			snap.GPU = &g
-		} else if previous.GPU != nil && previous.GPU.Available {
-			snap.GPU = previous.GPU
-			snap.Status.GPU = staleStatus(errors.New("collector unavailable"))
-		}
+	// Compute energy impact after all metrics are collected, since it
+	// depends on both CPU and GPU utilization.
+	if snap.GPU != nil && snap.GPU.Available {
+		snap.GPU.Energy = gpu.ComputeEnergyImpact(snap.CPU.Total, snap.GPU.Utilization, true, snap.GPU.Thermal)
 	}
 
 	return snap

@@ -110,3 +110,64 @@ func TestComputeDiskDelta_ZeroInterval(t *testing.T) {
 		t.Errorf("expected not available for zero interval")
 	}
 }
+
+func TestComputeNetworkDelta_CounterWrap(t *testing.T) {
+	// Simulate counter reset (reboot): current < previous
+	prev := NetworkStats{
+		Available: true,
+		TotalIn:   100000,
+		TotalOut:  50000,
+		Interfaces: []InterfaceStats{
+			{Name: "en0", BytesIn: 100000, BytesOut: 50000},
+		},
+	}
+	curr := NetworkStats{
+		Available: true,
+		TotalIn:   500,
+		TotalOut:  200,
+		Interfaces: []InterfaceStats{
+			{Name: "en0", BytesIn: 500, BytesOut: 200},
+		},
+	}
+
+	delta := ComputeNetworkDelta(curr, prev, 1.0)
+	if delta.TotalInSec != 0 {
+		t.Errorf("expected TotalInSec=0 on counter wrap, got %f", delta.TotalInSec)
+	}
+	if delta.TotalOutSec != 0 {
+		t.Errorf("expected TotalOutSec=0 on counter wrap, got %f", delta.TotalOutSec)
+	}
+	if len(delta.Interfaces) > 0 && delta.Interfaces[0].InSec != 0 {
+		t.Errorf("expected interface InSec=0 on counter wrap, got %f", delta.Interfaces[0].InSec)
+	}
+}
+
+func TestComputeDiskDelta_CounterWrap(t *testing.T) {
+	prev := DiskStats{
+		Available:  true,
+		TotalRead:  100000,
+		TotalWrite: 50000,
+		Devices: []DiskIOStats{
+			{Name: "sda", ReadBytes: 100000, WriteBytes: 50000},
+		},
+	}
+	curr := DiskStats{
+		Available:  true,
+		TotalRead:  500,
+		TotalWrite: 200,
+		Devices: []DiskIOStats{
+			{Name: "sda", ReadBytes: 500, WriteBytes: 200},
+		},
+	}
+
+	delta := ComputeDiskDelta(curr, prev, 1.0)
+	if delta.ReadSec != 0 {
+		t.Errorf("expected ReadSec=0 on counter wrap, got %f", delta.ReadSec)
+	}
+	if delta.WriteSec != 0 {
+		t.Errorf("expected WriteSec=0 on counter wrap, got %f", delta.WriteSec)
+	}
+	if len(delta.Devices) > 0 && delta.Devices[0].ReadSec != 0 {
+		t.Errorf("expected device ReadSec=0 on counter wrap, got %f", delta.Devices[0].ReadSec)
+	}
+}

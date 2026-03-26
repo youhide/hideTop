@@ -1,6 +1,6 @@
 package gpu
 
-// computeEnergyImpact calculates a lightweight approximation of system
+// ComputeEnergyImpact calculates a lightweight approximation of system
 // energy impact, inspired by macOS Activity Monitor.
 //
 // This is NOT an official Apple metric. It is a heuristic based on:
@@ -15,7 +15,7 @@ package gpu
 //
 // The formula intentionally over-weights CPU because it is available
 // on all platforms and is the most reliable signal.
-func computeEnergyImpact(cpuTotal float64, gpuUtil float64, gpuAvailable bool, thermal ThermalState) EnergyImpact {
+func ComputeEnergyImpact(cpuTotal float64, gpuUtil float64, gpuAvailable bool, thermal ThermalState) EnergyImpact {
 	score := cpuTotal * 0.70
 
 	if gpuAvailable {

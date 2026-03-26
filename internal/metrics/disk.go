@@ -80,8 +80,8 @@ func ComputeDiskDelta(current, previous DiskStats, intervalSecs float64) DiskDel
 
 	delta := DiskDelta{
 		Available: true,
-		ReadSec:   float64(current.TotalRead-previous.TotalRead) / intervalSecs,
-		WriteSec:  float64(current.TotalWrite-previous.TotalWrite) / intervalSecs,
+		ReadSec:   safeDiskDeltaRate(current.TotalRead, previous.TotalRead, intervalSecs),
+		WriteSec:  safeDiskDeltaRate(current.TotalWrite, previous.TotalWrite, intervalSecs),
 	}
 
 	prevMap := make(map[string]DiskIOStats, len(previous.Devices))
@@ -96,10 +96,19 @@ func ComputeDiskDelta(current, previous DiskStats, intervalSecs float64) DiskDel
 		}
 		delta.Devices = append(delta.Devices, DiskDeviceDelta{
 			Name:     cur.Name,
-			ReadSec:  float64(cur.ReadBytes-prev.ReadBytes) / intervalSecs,
-			WriteSec: float64(cur.WriteBytes-prev.WriteBytes) / intervalSecs,
+			ReadSec:  safeDiskDeltaRate(cur.ReadBytes, prev.ReadBytes, intervalSecs),
+			WriteSec: safeDiskDeltaRate(cur.WriteBytes, prev.WriteBytes, intervalSecs),
 		})
 	}
 
 	return delta
+}
+
+// safeDiskDeltaRate computes (current - previous) / interval, returning 0
+// when counters have wrapped (e.g. after a reboot).
+func safeDiskDeltaRate(current, previous uint64, intervalSecs float64) float64 {
+	if current < previous {
+		return 0
+	}
+	return float64(current-previous) / intervalSecs
 }
