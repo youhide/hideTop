@@ -2,7 +2,6 @@ package gpu
 
 import (
 	"context"
-	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -109,21 +108,4 @@ func (b *NvidiaBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 
 	s.Energy = computeEnergyImpact(cpuTotal, s.Utilization, true, s.Thermal)
 	return s
-}
-
-// nvidiaQueryMultiGPU returns stats for all NVIDIA GPUs. Currently unused
-// but available for future multi-GPU support.
-func nvidiaQueryMultiGPU(ctx context.Context) ([]string, error) {
-	out, err := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=index,gpu_name",
-		"--format=csv,noheader").Output()
-	if err != nil {
-		return nil, fmt.Errorf("nvidia-smi: %w", err)
-	}
-	var gpus []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			gpus = append(gpus, line)
-		}
-	}
-	return gpus, nil
 }

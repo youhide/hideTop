@@ -91,45 +91,6 @@ func RenderTemperature(temp metrics.TemperatureStats, width int) string {
 	return PanelStyle.Width(width - 2).Render(b.String())
 }
 
-// renderTempBar renders a temperature bar (0-110°C range).
-func renderTempBar(temp float64, label string, maxWidth int) string {
-	if maxWidth < 1 {
-		maxWidth = 1
-	}
-
-	// Normalize to 0-100 scale (using 110°C as max)
-	pct := temp / 110 * 100
-	if pct > 100 {
-		pct = 100
-	}
-	if pct < 0 {
-		pct = 0
-	}
-
-	labelLen := len(label) + 2
-	suffixLen := 1
-	barWidth := maxWidth - labelLen - suffixLen
-	if barWidth < 4 {
-		barWidth = 4
-	}
-
-	filled := int(pct / 100 * float64(barWidth))
-	if filled > barWidth {
-		filled = barWidth
-	}
-	empty := barWidth - filled
-
-	color := TempColor(temp)
-	filledStyle := lipgloss.NewStyle().Foreground(color)
-	emptyStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-
-	return fmt.Sprintf("%s [%s%s]",
-		label,
-		filledStyle.Render(strings.Repeat("█", filled)),
-		emptyStyle.Render(strings.Repeat("░", empty)),
-	)
-}
-
 // truncateSensorLabel truncates a sensor label for compact display.
 func truncateSensorLabel(label string, maxLen int) string {
 	if len(label) <= maxLen {

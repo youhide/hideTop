@@ -1,7 +1,6 @@
 package gpu
 
 import (
-	"bytes"
 	"context"
 	"os/exec"
 	"runtime"
@@ -67,18 +66,4 @@ func (b *AppleBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 func hasCommand(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
-}
-
-// parseGPUTemp extracts GPU temperature from ioreg data if present.
-func parseGPUTemp(data []byte) (float64, bool) {
-	// Some Apple Silicon ioreg outputs include temperature data under
-	// "GPU Temperature" or similar keys. This is best-effort.
-	lines := bytes.Split(data, []byte("\n"))
-	for _, line := range lines {
-		s := string(line)
-		_ = s
-		// Apple Silicon typically does not expose GPU temp through ioreg
-		// Temperature comes from SMC/IOKit sensors (handled by gopsutil)
-	}
-	return 0, false
 }
