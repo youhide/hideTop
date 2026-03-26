@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -61,9 +60,9 @@ type Model struct {
 	showDetail      *ui.ProcessDetail // non-nil = showing detail overlay
 	treeView        bool
 	hideSystem      bool
-	confirmKill     syscall.Signal // non-zero = awaiting Y/N confirmation
-	killMsg         string         // status message after kill attempt
-	lastSelectedIdx int            // last known visual index for fallback
+	confirmKill     killSignal // non-zero = awaiting Y/N confirmation
+	killMsg         string     // status message after kill attempt
+	lastSelectedIdx int        // last known visual index for fallback
 	version         string
 }
 
@@ -414,12 +413,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.hideSystem = !m.hideSystem
 	case "K":
 		if m.selectedPID > 0 {
-			m.confirmKill = syscall.SIGKILL
+			m.confirmKill = signalKill
 			m.killMsg = fmt.Sprintf("SIGKILL PID %d? (y/N)", m.selectedPID)
 		}
 	case "x":
 		if m.selectedPID > 0 {
-			m.confirmKill = syscall.SIGTERM
+			m.confirmKill = signalTerm
 			m.killMsg = fmt.Sprintf("Kill PID %d? (y/N)", m.selectedPID)
 		}
 	case "e":
@@ -755,11 +754,11 @@ func appendHistory(h []float64, v float64) []float64 {
 	return h
 }
 
-func (m Model) killSelectedProcess(sig syscall.Signal) string {
+func (m Model) killSelectedProcess(sig killSignal) string {
 	if m.selectedPID <= 0 {
 		return ""
 	}
-	err := syscall.Kill(int(m.selectedPID), sig)
+	err := killProcess(int(m.selectedPID), sig)
 	if err != nil {
 		return fmt.Sprintf("kill %d: %v", m.selectedPID, err)
 	}
