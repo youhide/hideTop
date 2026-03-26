@@ -9,6 +9,12 @@ import (
 	"github.com/youhide/hideTop/internal/metrics/gpu"
 )
 
+// CollectOptions controls which metrics to skip.
+type CollectOptions struct {
+	SkipGPU  bool
+	SkipTemp bool
+}
+
 func Collect(
 	ctx context.Context,
 	cpuInterval time.Duration,
@@ -16,6 +22,7 @@ func Collect(
 	procLimit int,
 	processSampleEvery time.Duration,
 	previous Snapshot,
+	opts CollectOptions,
 ) Snapshot {
 	now := time.Now()
 
@@ -30,7 +37,11 @@ func Collect(
 	)
 
 	processesDue := shouldCollectProcesses(now, processSampleEvery, sortBy, previous)
-	workers := 3
+	workers := 5 // cpu, memory, load, network, disk, battery — adjusted below
+	if !opts.SkipTemp {
+		workers++
+	}
+	workers++ // battery
 	if processesDue {
 		workers++
 	} else {
@@ -40,6 +51,23 @@ func Collect(
 	}
 
 	wg.Add(workers)
+
+	if !opts.SkipTemp {
+		go func() {
+			defer wg.Done()
+			t, err := CollectTemperature(ctx)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				snap.Status.Temperature = staleStatus(err)
+				if previous.Temperature.Available {
+					snap.Temperature = previous.Temperature
+				}
+				return
+			}
+			snap.Temperature = t
+		}()
+	}
 
 	go func() {
 		defer wg.Done()
@@ -86,6 +114,51 @@ func Collect(
 		snap.Load = l
 	}()
 
+	go func() {
+		defer wg.Done()
+		n, err := CollectNetwork(ctx)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			snap.Status.Network = staleStatus(err)
+			if previous.Network.Available {
+				snap.Network = previous.Network
+			}
+			return
+		}
+		snap.Network = n
+	}()
+
+	go func() {
+		defer wg.Done()
+		d, err := CollectDisk(ctx)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			snap.Status.Disk = staleStatus(err)
+			if previous.Disk.Available {
+				snap.Disk = previous.Disk
+			}
+			return
+		}
+		snap.Disk = d
+	}()
+
+	go func() {
+		defer wg.Done()
+		b, err := CollectBattery(ctx)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			snap.Status.Battery = staleStatus(err)
+			if previous.Battery.Available {
+				snap.Battery = previous.Battery
+			}
+			return
+		}
+		snap.Battery = b
+	}()
+
 	if processesDue {
 		go func() {
 			defer wg.Done()
@@ -110,12 +183,14 @@ func Collect(
 	wg.Wait()
 
 	// GPU collection runs after CPU so it can use cpuTotal for energy impact.
-	g := gpu.Collect(ctx, snap.CPU.Total)
-	if g.Available {
-		snap.GPU = &g
-	} else if previous.GPU != nil && previous.GPU.Available {
-		snap.GPU = previous.GPU
-		snap.Status.GPU = staleStatus(errors.New("collector unavailable"))
+	if !opts.SkipGPU {
+		g := gpu.Collect(ctx, snap.CPU.Total)
+		if g.Available {
+			snap.GPU = &g
+		} else if previous.GPU != nil && previous.GPU.Available {
+			snap.GPU = previous.GPU
+			snap.Status.GPU = staleStatus(errors.New("collector unavailable"))
+		}
 	}
 
 	return snap

@@ -71,12 +71,28 @@ func CollectProcesses(ctx context.Context, sortBy SortField, limit int) ([]Proce
 		if name == "" {
 			name = "?"
 		}
+		user, _ := sample.process.UsernameWithContext(ctx)
+		ppid, _ := sample.process.PpidWithContext(ctx)
+
+		var state string
+		if ss, err := sample.process.StatusWithContext(ctx); err == nil && len(ss) > 0 {
+			state = ss[0]
+		}
+
+		var threads int32
+		if t, err := sample.process.NumThreadsWithContext(ctx); err == nil {
+			threads = t
+		}
 
 		infos = append(infos, ProcessInfo{
 			PID:        sample.pid,
+			PPID:       ppid,
 			Name:       name,
+			User:       user,
 			CPUPercent: sample.cpu,
 			MemPercent: sample.mem,
+			State:      state,
+			NumThreads: threads,
 		})
 	}
 

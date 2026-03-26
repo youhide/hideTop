@@ -8,7 +8,7 @@ import (
 	"github.com/youhide/hideTop/internal/metrics"
 )
 
-func RenderCPU(cpu metrics.CPUStats, width int) string {
+func RenderCPU(cpu metrics.CPUStats, width int, history []float64) string {
 	var b strings.Builder
 
 	b.WriteString(HeaderStyle.Render("CPU"))
@@ -46,7 +46,12 @@ func RenderCPU(cpu metrics.CPUStats, width int) string {
 		leftCol.String(), "  ", rightCol.String(),
 	)
 	b.WriteString(cols)
-	b.WriteByte('\n')
+
+	// Sparkline history
+	if len(history) > 1 {
+		b.WriteByte('\n')
+		b.WriteString(RenderSparklineCompact("cpu", history, width-4))
+	}
 
 	return PanelStyle.Width(width - 2).Render(b.String())
 }

@@ -3,26 +3,28 @@ package gpu
 import (
 	"bytes"
 	"context"
-	"os/exec"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 // Stats holds GPU metrics. When Available is false the other fields
 // are meaningless and the UI must not render a GPU panel.
 type Stats struct {
-	Available    bool
-	Utilization  float64
-	FrequencyMHz int
-	CoreCount    int
-	Engines      []EngineStats
-	Thermal      ThermalState
-	ThermalOK    bool
-	Energy       EnergyImpact
+	Available     bool
+	Utilization   float64
+	FrequencyMHz  int
+	CoreCount     int
+	Engines       []EngineStats
+	Thermal       ThermalState
+	ThermalOK     bool
+	Energy        EnergyImpact
+	Temperature   float64 // GPU temperature in Celsius (0 if unavailable)
+	Name          string  // GPU model name (e.g. "NVIDIA GeForce RTX 4090")
+	MemoryUsedMB  float64 // VRAM used in MiB
+	MemoryTotalMB float64 // VRAM total in MiB
 }
 
 // EngineStats represents a single GPU engine's utilization.
@@ -63,78 +65,59 @@ type EnergyImpact struct {
 	Available bool
 }
 
-// supported reports whether the current platform can provide GPU metrics.
+// supported reports whether the current platform can provide GPU metrics
+// via any backend.
 func supported() bool {
 	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
 }
 
 var (
-	capOnce      sync.Once
-	capAvailable bool
+	backendOnce   sync.Once
+	activeBackend Backend
 )
 
-func checkCapability() bool {
-	if !supported() {
-		return false
+// initBackend discovers the first available GPU backend.
+// Order: Apple Silicon → NVIDIA → AMD → none.
+func initBackend() {
+	backends := []Backend{
+		&AppleBackend{},
+		&NvidiaBackend{},
+		&AMDBackend{},
 	}
-	if _, err := exec.LookPath("ioreg"); err != nil {
-		return false
+	for _, b := range backends {
+		if b.Supported() {
+			activeBackend = b
+			return
+		}
 	}
-	return true
-}
-
-func isAvailable() bool {
-	capOnce.Do(func() {
-		capAvailable = checkCapability()
-	})
-	return capAvailable
 }
 
 // Collect gathers GPU metrics. It is safe to call from any platform;
 // on unsupported systems it immediately returns Stats{Available: false}.
 func Collect(ctx context.Context, cpuTotal float64) Stats {
-	if !isAvailable() {
+	backendOnce.Do(initBackend)
+	if activeBackend == nil {
 		return Stats{}
 	}
+	return activeBackend.Collect(ctx, cpuTotal)
+}
 
-	s := Stats{Available: true}
-
-	// Single ioreg call — parse all GPU data from one invocation.
-	var ioregData []byte
-	func() {
-		ioCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-		out, err := exec.CommandContext(ioCtx, "ioreg", "-r", "-c", "AGXAccelerator").Output()
-		if err == nil {
-			ioregData = out
-		}
-	}()
-
-	if len(ioregData) > 0 {
-		if util, ok := parseUtilization(ioregData); ok {
-			s.Utilization = util
-		}
-		if freq, ok := parseFrequency(ioregData); ok {
-			s.FrequencyMHz = freq
-		}
-		if engines := parseEnginesFromIOReg(ioregData); len(engines) > 0 {
-			s.Engines = engines
-		}
-		if cores, ok := parseCoreCount(ioregData); ok {
-			s.CoreCount = cores
-		}
+// BackendName returns the name of the active GPU backend, or "none".
+func BackendName() string {
+	backendOnce.Do(initBackend)
+	if activeBackend == nil {
+		return "none"
 	}
-
-	// Thermal runs via pmset (separate command), concurrently is fine.
-	if state, ok := collectThermal(ctx); ok {
-		s.Thermal = state
-		s.ThermalOK = true
+	switch activeBackend.(type) {
+	case *AppleBackend:
+		return "apple"
+	case *NvidiaBackend:
+		return "nvidia"
+	case *AMDBackend:
+		return "amd"
+	default:
+		return "unknown"
 	}
-
-	// Compute energy impact after all data is collected.
-	s.Energy = computeEnergyImpact(cpuTotal, s.Utilization, true, s.Thermal)
-
-	return s
 }
 
 var utilRe = regexp.MustCompile(`(?i)(?:device utilization|gpu[- ]utilization)[^"]*"?\s*(?:%\s*)?=\s*(\d+)`)

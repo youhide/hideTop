@@ -16,8 +16,7 @@ var (
 var (
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(ColorTitle).
-			MarginBottom(1)
+			Foreground(ColorTitle)
 
 	PanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

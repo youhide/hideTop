@@ -10,7 +10,7 @@ import (
 
 // RenderGPU renders the GPU panel. Returns an empty string when GPU
 // metrics are unavailable, causing no visual output.
-func RenderGPU(stats *gpu.Stats, width int) string {
+func RenderGPU(stats *gpu.Stats, width int, history []float64) string {
 	if stats == nil {
 		return ""
 	}
@@ -21,7 +21,9 @@ func RenderGPU(stats *gpu.Stats, width int) string {
 	var b strings.Builder
 
 	b.WriteString(HeaderStyle.Render("GPU"))
-	if stats.CoreCount > 0 {
+	if stats.Name != "" {
+		b.WriteString(SubtleStyle.Render("  " + stats.Name))
+	} else if stats.CoreCount > 0 {
 		b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %d cores", stats.CoreCount)))
 	}
 
@@ -58,6 +60,28 @@ func RenderGPU(stats *gpu.Stats, width int) string {
 		b.WriteString(SubtleStyle.Render(
 			fmt.Sprintf("  freq: %d MHz", stats.FrequencyMHz),
 		))
+		b.WriteByte('\n')
+	}
+
+	// GPU temperature (shown only if collected)
+	if stats.Temperature > 0 {
+		tempColor := TempColor(stats.Temperature)
+		b.WriteString(fmt.Sprintf("  temp: %s",
+			lipgloss.NewStyle().Foreground(tempColor).Render(fmt.Sprintf("%.0f°C", stats.Temperature)),
+		))
+		b.WriteByte('\n')
+	}
+
+	// VRAM usage (shown only for discrete GPUs)
+	if stats.MemoryTotalMB > 0 {
+		vram := gpu.FormatVRAM(stats.MemoryUsedMB, stats.MemoryTotalMB)
+		b.WriteString(SubtleStyle.Render("  vram: " + vram))
+		b.WriteByte('\n')
+	}
+
+	// Sparkline history
+	if len(history) > 1 {
+		b.WriteString(RenderSparklineCompact("gpu", history, width-4))
 		b.WriteByte('\n')
 	}
 
