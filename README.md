@@ -92,55 +92,6 @@ CLI flags take precedence over the config file.
 
 The `filter_users` array controls which usernames are hidden when the system process filter (`s`) is active. Defaults to `["root", "_windowserver", "nobody"]` if not set.
 
-## Project structure
-
-```
-hideTop/
-├── src/
-│   └── main.go               # Entry point
-├── internal/
-│   ├── app/
-│   │   └── model.go          # Bubble Tea model, update loop, view
-│   ├── config/
-│   │   └── config.go         # CLI flags & config file
-│   ├── metrics/
-│   │   ├── types.go           # Shared data types (Snapshot, ProcessInfo, …)
-│   │   ├── collector.go       # Concurrent aggregation of all metrics
-│   │   ├── cpu.go
-│   │   ├── memory.go
-│   │   ├── processes.go
-│   │   ├── temperature.go
-│   │   ├── network.go
-│   │   ├── disk.go
-│   │   ├── battery.go
-│   │   └── gpu/               # GPU metrics (pluggable backends)
-│   │       ├── backend.go     # Backend interface
-│   │       ├── gpu.go         # Runtime detection & dispatch
-│   │       ├── apple.go       # Apple Silicon (ioreg)
-│   │       ├── nvidia.go      # NVIDIA (nvidia-smi)
-│   │       ├── amd.go         # AMD (sysfs)
-│   │       ├── engines.go     # Per-engine utilisation parser
-│   │       ├── thermal.go     # Thermal pressure (macOS pmset)
-│   │       └── energy.go      # Heuristic energy impact
-│   └── ui/
-│       ├── styles.go          # Colour palette & shared styles
-│       ├── themes.go          # Theme definitions
-│       ├── sparkline.go       # Sparkline renderer
-│       ├── cpu.go
-│       ├── gpu.go
-│       ├── memory.go
-│       ├── temperature.go
-│       ├── network.go
-│       ├── disk.go
-│       ├── battery.go
-│       ├── processes.go       # Process table
-│       ├── process_detail.go  # Process detail overlay
-│       └── help.go            # Help bar & overlay
-├── go.mod
-├── go.sum
-└── README.md
-```
-
 ## Architecture
 
 | Layer | Package | Responsibility |
