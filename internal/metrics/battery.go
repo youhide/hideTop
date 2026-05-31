@@ -68,8 +68,8 @@ func collectBatteryLinux() (BatteryStats, error) {
 }
 
 // collectBatteryDarwin reads battery info via pmset on macOS.
-func collectBatteryDarwin(_ context.Context) (BatteryStats, error) {
-	out, err := exec.Command("pmset", "-g", "batt").Output()
+func collectBatteryDarwin(ctx context.Context) (BatteryStats, error) {
+	out, err := exec.CommandContext(ctx, "pmset", "-g", "batt").Output()
 	if err != nil {
 		return BatteryStats{}, nil
 	}

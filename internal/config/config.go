@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -112,7 +113,42 @@ func loadConfigFile() *fileConfig {
 	}
 	var fc fileConfig
 	if err := json.Unmarshal(data, &fc); err != nil {
+		fmt.Fprintf(os.Stderr, "hideTop: ignoring malformed config at %s: %v\n", path, err)
 		return nil
 	}
 	return &fc
+}
+
+// configPath returns the path to the user config file.
+func configPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "hideTop", "config.json"), nil
+}
+
+// SaveInterval persists the refresh interval to the config file, preserving
+// any other settings already present. Existing config is merged so unrelated
+// fields are not lost.
+func SaveInterval(d time.Duration) error {
+	path, err := configPath()
+	if err != nil {
+		return err
+	}
+
+	fc := fileConfig{}
+	if existing := loadConfigFile(); existing != nil {
+		fc = *existing
+	}
+	fc.Interval = d.String()
+
+	data, err := json.MarshalIndent(fc, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }

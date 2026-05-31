@@ -202,8 +202,9 @@ func Collect(
 	wg.Wait()
 
 	// Compute energy impact after all metrics are collected, since it
-	// depends on both CPU and GPU utilization.
-	if snap.GPU != nil && snap.GPU.Available {
+	// depends on both CPU and GPU utilization. Skip when CPU data is stale
+	// so the estimate is not based on an outdated CPU reading.
+	if snap.GPU != nil && snap.GPU.Available && !snap.Status.CPU.Stale {
 		snap.GPU.Energy = gpu.ComputeEnergyImpact(snap.CPU.Total, snap.GPU.Utilization, true, snap.GPU.Thermal)
 	}
 

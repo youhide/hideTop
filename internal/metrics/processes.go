@@ -38,7 +38,9 @@ func CollectProcesses(ctx context.Context, sortBy SortField, limit int) ([]Proce
 
 		cpuPct, cpuErr := p.CPUPercentWithContext(ctx)
 		memPct, memErr := p.MemoryPercentWithContext(ctx)
-		if cpuErr != nil && memErr != nil {
+		if cpuErr != nil || memErr != nil {
+			// Skip the process if either metric is unavailable to avoid
+			// reporting a misleading zero for the failed measurement.
 			continue
 		}
 

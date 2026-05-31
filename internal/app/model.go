@@ -50,6 +50,8 @@ type Model struct {
 	collecting    bool
 	collectCancel context.CancelFunc
 
+	intervalChanged bool // user adjusted the refresh interval this session
+
 	// Sparkline history
 	cpuHistory []float64
 	memHistory []float64
@@ -61,6 +63,7 @@ type Model struct {
 	treeView        bool
 	hideSystem      bool
 	confirmKill     killSignal // non-zero = awaiting Y/N confirmation
+	pidToKill       int32      // PID captured when the kill prompt was shown
 	killMsg         string     // status message after kill attempt
 	lastSelectedIdx int        // last known visual index for fallback
 	version         string
@@ -152,6 +155,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case processDetailMsg:
 		if msg.err == nil {
 			m.showDetail = &msg.detail
+		} else {
+			m.killMsg = msg.err.Error()
+			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return killMsgClearMsg{} })
 		}
 		return m, nil
 	}
@@ -263,9 +269,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y", "Y":
 			m.killMsg = m.killSelectedProcess(m.confirmKill)
 			m.confirmKill = 0
+			m.pidToKill = 0
 			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return killMsgClearMsg{} })
 		default:
 			m.confirmKill = 0
+			m.pidToKill = 0
 			m.killMsg = ""
 		}
 		return m, nil
@@ -291,6 +299,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collectCancel()
 			m.collectCancel = nil
 		}
+		if m.intervalChanged {
+			if err := config.SaveInterval(m.cfg.RefreshInterval); err != nil {
+				fmt.Fprintf(os.Stderr, "hideTop: failed to save refresh interval: %v\n", err)
+			}
+		}
 		return m, tea.Quit
 	case "c":
 		if m.sortBy != metrics.SortByCPU {
@@ -309,11 +322,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "+", "=":
 		m.cfg.RefreshInterval += 250 * time.Millisecond
+		m.intervalChanged = true
 		m.refreshFlash = true
 		return m, tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg { return flashDoneMsg{} })
 	case "-", "_":
 		if m.cfg.RefreshInterval > 250*time.Millisecond {
 			m.cfg.RefreshInterval -= 250 * time.Millisecond
+			m.intervalChanged = true
 		}
 		m.refreshFlash = true
 		return m, tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg { return flashDoneMsg{} })
@@ -348,11 +363,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "K":
 		if m.selectedPID > 0 {
 			m.confirmKill = signalKill
+			m.pidToKill = m.selectedPID
 			m.killMsg = fmt.Sprintf("SIGKILL PID %d? (y/N)", m.selectedPID)
 		}
 	case "x":
 		if m.selectedPID > 0 {
 			m.confirmKill = signalTerm
+			m.pidToKill = m.selectedPID
 			m.killMsg = fmt.Sprintf("Kill PID %d? (y/N)", m.selectedPID)
 		}
 	case "e":
@@ -704,14 +721,14 @@ func appendHistory(h []float64, v float64) []float64 {
 }
 
 func (m Model) killSelectedProcess(sig killSignal) string {
-	if m.selectedPID <= 0 {
+	if m.pidToKill <= 0 {
 		return ""
 	}
-	err := killProcess(int(m.selectedPID), sig)
+	err := killProcess(int(m.pidToKill), sig)
 	if err != nil {
-		return fmt.Sprintf("kill %d: %v", m.selectedPID, err)
+		return fmt.Sprintf("kill %d: %v", m.pidToKill, err)
 	}
-	return fmt.Sprintf("sent signal %d to PID %d", sig, m.selectedPID)
+	return fmt.Sprintf("sent signal %d to PID %d", sig, m.pidToKill)
 }
 
 func (m Model) exportSnapshot() string {
@@ -750,7 +767,7 @@ func fetchProcessDetail(pid int32, procs []metrics.ProcessInfo) tea.Cmd {
 
 		proc, err := process.NewProcessWithContext(ctx, pid)
 		if err != nil {
-			return processDetailMsg{detail: detail, err: nil}
+			return processDetailMsg{detail: detail, err: fmt.Errorf("process %d no longer available", pid)}
 		}
 
 		if cmd, err := proc.CmdlineWithContext(ctx); err == nil {
