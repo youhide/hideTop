@@ -1,14 +1,25 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/youhide/hideTop/internal/config"
 	"github.com/youhide/hideTop/internal/metrics"
 )
+
+func assertViewLinesWithinWidth(t *testing.T, rendered string, width int) {
+	t.Helper()
+	for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
+		if got := lipgloss.Width(line); got > width {
+			t.Fatalf("line width = %d, want <= %d\nline: %q\nrendered:\n%s", got, width, line, rendered)
+		}
+	}
+}
 
 func TestSnapshotDeltaUsesImmediatelyPreviousSnapshot(t *testing.T) {
 	t0 := time.Unix(100, 0)
@@ -143,4 +154,29 @@ func TestHideSystemResolvesSelectionToVisibleProcess(t *testing.T) {
 	if m.selectedPID != 20 {
 		t.Fatalf("selected PID after hiding system processes = %d, want 20", m.selectedPID)
 	}
+}
+
+func TestViewFitsNarrowWidth(t *testing.T) {
+	m := New(config.Config{RefreshInterval: time.Second})
+	m.width = 30
+	m.height = 20
+	m.killMsg = "a long status message that needs truncation"
+	m.snap = metrics.Snapshot{
+		CollectedAt: time.Unix(100, 0),
+		CPU: metrics.CPUStats{
+			PerCore: []float64{10, 20, 30, 40},
+			Total:   25,
+		},
+		Memory: metrics.MemoryStats{
+			TotalGB: 32,
+			UsedGB:  12,
+			Percent: 37.5,
+		},
+		Load: metrics.LoadAvg{Load1: 1.23, Load5: 2.34, Load15: 3.45},
+		Processes: []metrics.ProcessInfo{
+			{PID: 12345, Name: "long-process-name-that-wraps", User: "user", CPUPercent: 88.8, MemPercent: 9.9},
+		},
+	}
+
+	assertViewLinesWithinWidth(t, m.View(), m.width)
 }

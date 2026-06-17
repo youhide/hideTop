@@ -21,15 +21,20 @@ type ProcessDetail struct {
 // RenderProcessDetail renders a full-screen overlay with extended process info.
 func RenderProcessDetail(d ProcessDetail, width, height int) string {
 	var b strings.Builder
+	innerW := contentWidth(width)
 
-	title := fmt.Sprintf("Process %d — %s", d.PID, d.Name)
+	title := fitPlain(fmt.Sprintf("Process %d — %s", d.PID, d.Name), innerW)
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render(title))
 	b.WriteString("\n\n")
 
 	field := func(label, value string) {
+		valueW := innerW - 18
+		if valueW < 1 {
+			valueW = 1
+		}
 		b.WriteString(fmt.Sprintf("  %s  %s\n",
 			lipgloss.NewStyle().Bold(true).Foreground(ColorHeader).Width(14).Render(label),
-			SubtleStyle.Render(value),
+			SubtleStyle.Render(fitPlain(value, valueW)),
 		))
 	}
 
@@ -55,18 +60,12 @@ func RenderProcessDetail(d ProcessDetail, width, height int) string {
 	if d.Cmdline != "" {
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorHeader).Render("  Command Line"))
 		b.WriteString("\n")
-		// Wrap long command lines
-		cmd := d.Cmdline
 		maxW := width - 12
-		if maxW < 40 {
-			maxW = 40
+		if maxW < 1 {
+			maxW = 1
 		}
-		for len(cmd) > maxW {
-			b.WriteString("  " + SubtleStyle.Render(cmd[:maxW]) + "\n")
-			cmd = cmd[maxW:]
-		}
-		if cmd != "" {
-			b.WriteString("  " + SubtleStyle.Render(cmd) + "\n")
+		for _, line := range wrapPlain(d.Cmdline, maxW) {
+			b.WriteString("  " + SubtleStyle.Render(line) + "\n")
 		}
 	}
 
@@ -78,7 +77,7 @@ func RenderProcessDetail(d ProcessDetail, width, height int) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorTitle).
 		Padding(1, 2).
-		Width(width - 4).
+		Width(overlayWidth(width)).
 		Render(content)
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)

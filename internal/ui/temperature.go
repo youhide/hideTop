@@ -28,16 +28,17 @@ func RenderTemperature(temp metrics.TemperatureStats, width int) string {
 	}
 
 	var b strings.Builder
+	innerW := contentWidth(width)
 
-	b.WriteString(HeaderStyle.Render("Temperature"))
+	b.WriteString(HeaderStyle.Render(fitPlain("Temperature", innerW)))
 
 	// Inline CPU/GPU summary in header line
-	if temp.CPUTemp > 0 {
+	if innerW >= 28 && temp.CPUTemp > 0 {
 		c := TempColor(temp.CPUTemp)
 		b.WriteString(fmt.Sprintf("  CPU %s",
 			lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%.0f°C", temp.CPUTemp))))
 	}
-	if temp.GPUTemp > 0 {
+	if innerW >= 40 && temp.GPUTemp > 0 {
 		c := TempColor(temp.GPUTemp)
 		b.WriteString(fmt.Sprintf("  GPU %s",
 			lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%.0f°C", temp.GPUTemp))))
@@ -51,44 +52,57 @@ func RenderTemperature(temp metrics.TemperatureStats, width int) string {
 		sensors = sensors[:maxSensors]
 	}
 
-	colW := (width - 6) / 2
-	if colW < 20 {
-		colW = 20
-	}
-
-	for i := 0; i < len(sensors); i += 2 {
-		s := sensors[i]
-		c := TempColor(s.Temperature)
-		left := fmt.Sprintf("  %-10s %s",
-			truncateSensorLabel(s.Label, 10),
-			lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%5.1f°C", s.Temperature)))
-
-		if i+1 < len(sensors) {
-			s2 := sensors[i+1]
-			c2 := TempColor(s2.Temperature)
-			right := fmt.Sprintf("  %-10s %s",
-				truncateSensorLabel(s2.Label, 10),
-				lipgloss.NewStyle().Foreground(c2).Render(fmt.Sprintf("%5.1f°C", s2.Temperature)))
-			b.WriteString(left)
-			// Pad left to column width, then add right
-			pad := colW - lipgloss.Width(left)
-			if pad > 0 {
-				b.WriteString(strings.Repeat(" ", pad))
+	if innerW < 44 {
+		for _, s := range sensors {
+			c := TempColor(s.Temperature)
+			labelW := innerW - 10
+			if labelW < 1 {
+				labelW = 1
 			}
-			b.WriteString(right)
-		} else {
-			b.WriteString(left)
+			line := fmt.Sprintf("  %-*s %s",
+				labelW,
+				fitPlain(s.Label, labelW),
+				lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%4.0f°C", s.Temperature)))
+			b.WriteString(line)
+			b.WriteByte('\n')
 		}
-		b.WriteByte('\n')
+	} else {
+		colW := (innerW - 2) / 2
+		for i := 0; i < len(sensors); i += 2 {
+			s := sensors[i]
+			c := TempColor(s.Temperature)
+			left := fmt.Sprintf("  %-10s %s",
+				truncateSensorLabel(s.Label, 10),
+				lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%5.1f°C", s.Temperature)))
+
+			if i+1 < len(sensors) {
+				s2 := sensors[i+1]
+				c2 := TempColor(s2.Temperature)
+				right := fmt.Sprintf("  %-10s %s",
+					truncateSensorLabel(s2.Label, 10),
+					lipgloss.NewStyle().Foreground(c2).Render(fmt.Sprintf("%5.1f°C", s2.Temperature)))
+				b.WriteString(left)
+				// Pad left to column width, then add right.
+				pad := colW - lipgloss.Width(left)
+				if pad > 0 {
+					b.WriteString(strings.Repeat(" ", pad))
+				}
+				b.WriteString(right)
+			} else {
+				b.WriteString(left)
+			}
+			b.WriteByte('\n')
+		}
 	}
 
 	remaining := len(temp.Sensors) - maxSensors
 	if remaining > 0 {
-		b.WriteString(SubtleStyle.Render(fmt.Sprintf("  +%d more sensors", remaining)))
+		msg := fmt.Sprintf("  +%d more sensors", remaining)
+		b.WriteString(SubtleStyle.Render(fitPlain(msg, innerW)))
 		b.WriteByte('\n')
 	}
 
-	return PanelStyle.Width(width - 2).Render(b.String())
+	return PanelStyle.Width(panelWidth(width)).Render(b.String())
 }
 
 // truncateSensorLabel truncates a sensor label for compact display.

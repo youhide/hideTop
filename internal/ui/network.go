@@ -14,14 +14,22 @@ func RenderNetwork(delta metrics.NetworkDelta, width int) string {
 	}
 
 	var b strings.Builder
+	innerW := contentWidth(width)
 	b.WriteString(HeaderStyle.Render("Network"))
 	b.WriteByte('\n')
 
 	// Total throughput
-	b.WriteString(fmt.Sprintf("  ▼ %s/s   ▲ %s/s",
-		GreenStyle.Render(formatBytes(delta.TotalInSec)),
-		YellowStyle.Render(formatBytes(delta.TotalOutSec)),
-	))
+	if innerW < 34 {
+		b.WriteString(fmt.Sprintf("  ↓ %s/s  ↑ %s/s",
+			GreenStyle.Render(formatBytesCompact(delta.TotalInSec)),
+			YellowStyle.Render(formatBytesCompact(delta.TotalOutSec)),
+		))
+	} else {
+		b.WriteString(fmt.Sprintf("  ▼ %s/s   ▲ %s/s",
+			GreenStyle.Render(formatBytes(delta.TotalInSec)),
+			YellowStyle.Render(formatBytes(delta.TotalOutSec)),
+		))
+	}
 	b.WriteByte('\n')
 
 	// Per-interface (limit to top 4, skip inactive)
@@ -35,16 +43,25 @@ func RenderNetwork(delta metrics.NetworkDelta, width int) string {
 		if iface.InSec == 0 && iface.OutSec == 0 {
 			continue
 		}
-		b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %-10s", truncateStr(iface.Name, 10))))
-		b.WriteString(fmt.Sprintf("  ▼ %s/s  ▲ %s/s",
-			formatBytes(iface.InSec),
-			formatBytes(iface.OutSec),
-		))
+		if innerW < 34 {
+			name := fitPlain(iface.Name, 6)
+			b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %-6s", name)))
+			b.WriteString(fmt.Sprintf(" ↓%s ↑%s",
+				formatBytesCompact(iface.InSec),
+				formatBytesCompact(iface.OutSec),
+			))
+		} else {
+			b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %-10s", truncateStr(iface.Name, 10))))
+			b.WriteString(fmt.Sprintf("  ▼ %s/s  ▲ %s/s",
+				formatBytes(iface.InSec),
+				formatBytes(iface.OutSec),
+			))
+		}
 		b.WriteByte('\n')
 		shown++
 	}
 
-	return PanelStyle.Width(width - 2).Render(b.String())
+	return PanelStyle.Width(panelWidth(width)).Render(b.String())
 }
 
 // formatBytes formats bytes into human-readable format.

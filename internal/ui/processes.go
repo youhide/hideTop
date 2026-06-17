@@ -40,6 +40,8 @@ func columnHeader(label string, width int, align lipgloss.Position, sortBy, targ
 
 func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width, maxRows int) string {
 	var b strings.Builder
+	innerW := contentWidth(width)
+	compact := innerW < 68
 
 	// Header with optional search indicator
 	b.WriteString(HeaderStyle.Render("Processes"))
@@ -67,23 +69,23 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 	}
 	b.WriteByte('\n')
 
-	// Column headers with sort direction + underline on active column
-	hdr := "  " +
-		columnHeader("PID", 7, lipgloss.Left, state.SortBy, metrics.SortByPID) + " " +
-		columnHeader("S", 2, lipgloss.Left, state.SortBy, metrics.SortField(-1)) + " " +
-		columnHeader("USER", 10, lipgloss.Left, state.SortBy, metrics.SortField(-1)) + " " +
-		columnHeader("NAME", 20, lipgloss.Left, state.SortBy, metrics.SortField(-1)) + " " +
-		columnHeader("THR", 4, lipgloss.Right, state.SortBy, metrics.SortField(-1)) + " " +
-		columnHeader("CPU%", 8, lipgloss.Right, state.SortBy, metrics.SortByCPU) + " " +
-		columnHeader("MEM%", 8, lipgloss.Right, state.SortBy, metrics.SortByMem)
-	b.WriteString(hdr)
+	if compact {
+		b.WriteString(renderCompactProcessHeader(innerW))
+	} else {
+		// Column headers with sort direction + underline on active column
+		hdr := "  " +
+			columnHeader("PID", 7, lipgloss.Left, state.SortBy, metrics.SortByPID) + " " +
+			columnHeader("S", 2, lipgloss.Left, state.SortBy, metrics.SortField(-1)) + " " +
+			columnHeader("USER", 10, lipgloss.Left, state.SortBy, metrics.SortField(-1)) + " " +
+			columnHeader("NAME", 20, lipgloss.Left, state.SortBy, metrics.SortField(-1)) + " " +
+			columnHeader("THR", 4, lipgloss.Right, state.SortBy, metrics.SortField(-1)) + " " +
+			columnHeader("CPU%", 8, lipgloss.Right, state.SortBy, metrics.SortByCPU) + " " +
+			columnHeader("MEM%", 8, lipgloss.Right, state.SortBy, metrics.SortByMem)
+		b.WriteString(hdr)
+	}
 	b.WriteByte('\n')
 
-	sepWidth := width - 4
-	if sepWidth < 1 {
-		sepWidth = 1
-	}
-	sep := SubtleStyle.Render(strings.Repeat("─", sepWidth))
+	sep := SubtleStyle.Render(strings.Repeat("─", innerW))
 	b.WriteString(sep)
 	b.WriteByte('\n')
 
@@ -110,32 +112,9 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 		}
 	}
 
-	innerW := width - 4
 	for i := start; i < end; i++ {
 		dp := displayList[i]
-		p := dp.proc
-		user := truncateRunes(p.User, 10)
-		name := dp.prefix + truncateRunes(p.Name, 20-len(dp.prefix))
-
-		cpuColor := BarColor(p.CPUPercent)
-		memColor := BarColor(float64(p.MemPercent))
-
-		stateChar := stateLabel(p.State)
-
-		thrStr := ""
-		if p.NumThreads > 0 {
-			thrStr = fmt.Sprintf("%d", p.NumThreads)
-		}
-
-		line := fmt.Sprintf("  %-7d %s %-10s %-20s %s %s %s",
-			p.PID,
-			lipgloss.NewStyle().Foreground(stateColor(p.State)).Width(2).Render(stateChar),
-			user,
-			name,
-			lipgloss.NewStyle().Foreground(ColorSubtle).Width(4).Align(lipgloss.Right).Render(thrStr),
-			lipgloss.NewStyle().Foreground(cpuColor).Width(8).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.CPUPercent)),
-			lipgloss.NewStyle().Foreground(memColor).Width(8).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.MemPercent)),
-		)
+		line := renderProcessLine(dp, compact, innerW)
 
 		if selectedIdx >= 0 && i == selectedIdx {
 			visible := lipgloss.Width(line)
@@ -154,7 +133,70 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 		b.WriteByte('\n')
 	}
 
-	return PanelStyle.Width(width - 2).Render(b.String())
+	return PanelStyle.Width(panelWidth(width)).Render(b.String())
+}
+
+func renderCompactProcessHeader(width int) string {
+	switch {
+	case width >= 42:
+		nameW := width - 22
+		return fmt.Sprintf("  %-5s %-*s %5s %5s", "PID", nameW, "NAME", "CPU%", "MEM%")
+	case width >= 26:
+		nameW := width - 15
+		return fmt.Sprintf("  %-5s %-*s %5s", "PID", nameW, "NAME", "CPU%")
+	default:
+		return fitPlain("  PID NAME", width)
+	}
+}
+
+func renderProcessLine(dp displayProc, compact bool, width int) string {
+	p := dp.proc
+	cpuColor := BarColor(p.CPUPercent)
+	memColor := BarColor(float64(p.MemPercent))
+
+	if compact {
+		name := dp.prefix + p.Name
+		switch {
+		case width >= 42:
+			nameW := width - 22
+			return fmt.Sprintf("  %-5d %-*s %s %s",
+				p.PID,
+				nameW,
+				fitPlain(name, nameW),
+				lipgloss.NewStyle().Foreground(cpuColor).Width(5).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.CPUPercent)),
+				lipgloss.NewStyle().Foreground(memColor).Width(5).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.MemPercent)),
+			)
+		case width >= 26:
+			nameW := width - 15
+			return fmt.Sprintf("  %-5d %-*s %s",
+				p.PID,
+				nameW,
+				fitPlain(name, nameW),
+				lipgloss.NewStyle().Foreground(cpuColor).Width(5).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.CPUPercent)),
+			)
+		default:
+			return fitPlain(fmt.Sprintf("  %d %s", p.PID, name), width)
+		}
+	}
+
+	user := truncateRunes(p.User, 10)
+	name := fitPlain(dp.prefix+p.Name, 20)
+	stateChar := stateLabel(p.State)
+
+	thrStr := ""
+	if p.NumThreads > 0 {
+		thrStr = fmt.Sprintf("%d", p.NumThreads)
+	}
+
+	return fmt.Sprintf("  %-7d %s %-10s %-20s %s %s %s",
+		p.PID,
+		lipgloss.NewStyle().Foreground(stateColor(p.State)).Width(2).Render(stateChar),
+		user,
+		name,
+		lipgloss.NewStyle().Foreground(ColorSubtle).Width(4).Align(lipgloss.Right).Render(thrStr),
+		lipgloss.NewStyle().Foreground(cpuColor).Width(8).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.CPUPercent)),
+		lipgloss.NewStyle().Foreground(memColor).Width(8).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.MemPercent)),
+	)
 }
 
 // ProcessDisplayCount returns the number of processes in the rendered order.

@@ -43,15 +43,16 @@ func RenderSparkline(values []float64, maxWidth int, color lipgloss.Color) strin
 
 // RenderSparklineCompact renders a sparkline with a label prefix.
 func RenderSparklineCompact(label string, values []float64, maxWidth int) string {
-	if len(values) == 0 {
+	if len(values) == 0 || maxWidth <= 0 {
 		return ""
 	}
 
-	labelLen := len(label) + 1
-	sparkWidth := maxWidth - labelLen
-	if sparkWidth < 4 {
-		sparkWidth = 4
+	label = fitPlain(label, maxWidth)
+	labelWidth := lipgloss.Width(label)
+	if labelWidth >= maxWidth {
+		return label
 	}
+	sparkWidth := maxWidth - labelWidth - 1
 
 	// Determine color from latest value
 	latest := values[len(values)-1]

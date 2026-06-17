@@ -188,6 +188,9 @@ func (m Model) View() string {
 	// Header
 	batteryLabel := ui.RenderBattery(m.snap.Battery)
 	refreshLabel := fmt.Sprintf("  refresh %s", m.cfg.RefreshInterval)
+	if w < 40 {
+		refreshLabel = fmt.Sprintf(" %s", m.cfg.RefreshInterval)
+	}
 	var header string
 	if m.refreshFlash {
 		header = ui.TitleStyle.Render("hideTop") +
@@ -196,17 +199,37 @@ func (m Model) View() string {
 		header = ui.TitleStyle.Render("hideTop") +
 			ui.SubtleStyle.Render(refreshLabel)
 	}
+	appendHeader := func(part string) {
+		if lipgloss.Width(header)+lipgloss.Width(part) <= w {
+			header += part
+		}
+	}
+	appendHeaderMessage := func(msg string) {
+		remaining := w - lipgloss.Width(header) - 2
+		if remaining <= 0 {
+			return
+		}
+		header += "  " + lipgloss.NewStyle().Bold(true).Foreground(ui.ColorRed).Render(fitRunes(msg, remaining))
+	}
+	appendHeaderIfRoom := func(msg string, color lipgloss.Color) {
+		part := "  " + lipgloss.NewStyle().Bold(true).Foreground(color).Render(msg)
+		appendHeader(part)
+	}
 	if m.collecting {
-		header += ui.SubtleStyle.Render("  collecting")
+		appendHeader(ui.SubtleStyle.Render("  collecting"))
 	}
 	if stale := m.snap.Status.StaleMetrics(); len(stale) > 0 {
-		header += "  " + lipgloss.NewStyle().Bold(true).Foreground(ui.ColorYellow).Render("stale:"+strings.Join(stale, ","))
+		label := "stale:" + strings.Join(stale, ",")
+		if w < 40 {
+			label = "stale"
+		}
+		appendHeaderIfRoom(label, ui.ColorYellow)
 	}
 	if batteryLabel != "" {
-		header += "  " + batteryLabel
+		appendHeader("  " + batteryLabel)
 	}
 	if m.killMsg != "" {
-		header += "  " + lipgloss.NewStyle().Bold(true).Foreground(ui.ColorRed).Render(m.killMsg)
+		appendHeaderMessage(m.killMsg)
 	}
 
 	// Decide layout: two-column if wide enough
@@ -724,6 +747,20 @@ func appendHistory(h []float64, v float64) []float64 {
 		h = h[len(h)-historySize:]
 	}
 	return h
+}
+
+func fitRunes(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return string(r[:maxRunes])
+	}
+	return string(r[:maxRunes-3]) + "..."
 }
 
 func (m Model) killSelectedProcess(sig killSignal) string {

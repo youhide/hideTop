@@ -8,6 +8,33 @@ import (
 )
 
 func RenderHelp(width int) string {
+	if width < 40 {
+		return lipgloss.NewStyle().
+			Width(width).
+			Align(lipgloss.Center).
+			Render(fmt.Sprintf("%s %s  %s %s",
+				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("?"),
+				SubtleStyle.Render("help"),
+				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("q"),
+				SubtleStyle.Render("quit"),
+			))
+	}
+	if width < 70 {
+		return lipgloss.NewStyle().
+			Width(width).
+			Align(lipgloss.Center).
+			Render(fmt.Sprintf("%s %s  %s %s  %s %s  %s %s",
+				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("↑↓"),
+				SubtleStyle.Render("move"),
+				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("/"),
+				SubtleStyle.Render("search"),
+				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("?"),
+				SubtleStyle.Render("help"),
+				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("q"),
+				SubtleStyle.Render("quit"),
+			))
+	}
+
 	keys := []struct{ key, desc string }{
 		{"↑↓/jk", "move"},
 		{"/", "search"},
@@ -110,7 +137,7 @@ func RenderHelpOverlay(width, height int, version string) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorTitle).
 		Padding(1, 2).
-		Width(width - 4).
+		Width(overlayWidth(width)).
 		Render(content)
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
