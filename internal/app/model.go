@@ -36,7 +36,6 @@ const historySize = 60
 type Model struct {
 	cfg           config.Config
 	snap          metrics.Snapshot
-	prevSnap      metrics.Snapshot
 	netDelta      metrics.NetworkDelta
 	diskDelta     metrics.DiskDelta
 	sortBy        metrics.SortField
@@ -119,17 +118,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.collecting = false
 		newSnap := metrics.Snapshot(msg)
 
-		// Compute network and disk deltas
-		if m.prevSnap.CollectedAt.IsZero() {
+		// Compute network and disk deltas against the last displayed snapshot.
+		if m.snap.CollectedAt.IsZero() {
 			m.netDelta = metrics.NetworkDelta{}
 			m.diskDelta = metrics.DiskDelta{}
 		} else {
-			interval := newSnap.CollectedAt.Sub(m.prevSnap.CollectedAt).Seconds()
-			m.netDelta = metrics.ComputeNetworkDelta(newSnap.Network, m.prevSnap.Network, interval)
-			m.diskDelta = metrics.ComputeDiskDelta(newSnap.Disk, m.prevSnap.Disk, interval)
+			interval := newSnap.CollectedAt.Sub(m.snap.CollectedAt).Seconds()
+			m.netDelta = metrics.ComputeNetworkDelta(newSnap.Network, m.snap.Network, interval)
+			m.diskDelta = metrics.ComputeDiskDelta(newSnap.Disk, m.snap.Disk, interval)
 		}
 
-		m.prevSnap = m.snap
 		m.snap = newSnap
 
 		// Update selection tracking with new process list
@@ -227,11 +225,12 @@ func (m Model) View() string {
 
 	// Filter processes and resolve PID-based selection.
 	procs := m.filteredProcesses()
-	selectedIdx, _ := findSelectionIndex(m.selectedPID, procs, m.lastSelectedIdx)
+	selectedIdx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
 
 	procState := ui.ProcessViewState{
 		SortBy:      m.sortBy,
 		SelectedIdx: selectedIdx,
+		SelectedPID: m.selectedPID,
 		SearchQuery: m.searchQuery,
 		Searching:   m.searching,
 		TreeView:    m.treeView,
@@ -309,16 +308,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.sortBy != metrics.SortByCPU {
 			m.sortBy = metrics.SortByCPU
 			m.treeView = false
+			m.resolveSelection(m.filteredProcesses())
 		}
 	case "m":
 		if m.sortBy != metrics.SortByMem {
 			m.sortBy = metrics.SortByMem
 			m.treeView = false
+			m.resolveSelection(m.filteredProcesses())
 		}
 	case "p":
 		if m.sortBy != metrics.SortByPID {
 			m.sortBy = metrics.SortByPID
 			m.treeView = false
+			m.resolveSelection(m.filteredProcesses())
 		}
 	case "+", "=":
 		m.cfg.RefreshInterval += 250 * time.Millisecond
@@ -333,33 +335,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refreshFlash = true
 		return m, tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg { return flashDoneMsg{} })
 	case "j", "down":
-		procs := m.filteredProcesses()
-		if len(procs) > 0 {
-			idx := m.resolveSelection(procs)
-			if idx < 0 {
-				m.selectedPID = procs[0].PID
-			} else if idx < len(procs)-1 {
-				m.selectedPID = procs[idx+1].PID
-			}
-		}
+		m.moveSelection(1)
 	case "k", "up":
-		procs := m.filteredProcesses()
-		if len(procs) > 0 {
-			idx := m.resolveSelection(procs)
-			if idx < 0 {
-				m.selectedPID = procs[len(procs)-1].PID
-			} else if idx > 0 {
-				m.selectedPID = procs[idx-1].PID
-			}
-		}
+		m.moveSelection(-1)
 	case "/":
 		m.searching = true
 	case "?":
 		m.showHelp = !m.showHelp
 	case "t":
 		m.treeView = !m.treeView
+		m.resolveSelection(m.filteredProcesses())
 	case "s":
 		m.hideSystem = !m.hideSystem
+		m.resolveSelection(m.filteredProcesses())
 	case "K":
 		if m.selectedPID > 0 {
 			m.confirmKill = signalKill
@@ -394,21 +382,30 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseButtonWheelUp:
 		procs := m.filteredProcesses()
 		if len(procs) > 0 {
-			idx := m.resolveSelection(procs)
+			idx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
 			if idx <= 0 {
-				m.selectedPID = procs[0].PID
+				idx = 0
 			} else {
-				m.selectedPID = procs[idx-1].PID
+				idx--
+			}
+			if pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, idx); ok {
+				m.selectedPID = pid
+				m.lastSelectedIdx = idx
 			}
 		}
 	case tea.MouseButtonWheelDown:
 		procs := m.filteredProcesses()
 		if len(procs) > 0 {
-			idx := m.resolveSelection(procs)
+			idx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
+			count := ui.ProcessDisplayCount(procs, m.treeView)
 			if idx < 0 {
-				m.selectedPID = procs[0].PID
-			} else if idx < len(procs)-1 {
-				m.selectedPID = procs[idx+1].PID
+				idx = 0
+			} else if idx < count-1 {
+				idx++
+			}
+			if pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, idx); ok {
+				m.selectedPID = pid
+				m.lastSelectedIdx = idx
 			}
 		}
 	case tea.MouseButtonLeft:
@@ -426,7 +423,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		procDataY := m.computeProcDataY()
 
 		// Compute viewport start (same logic as RenderProcesses)
-		selectedIdx, _ := findSelectionIndex(m.selectedPID, procs, m.lastSelectedIdx)
+		selectedIdx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
 		h := m.height
 		if h == 0 {
 			h = 24
@@ -444,11 +441,46 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 
 		clickedIdx := viewStart + (msg.Y - procDataY)
-		if clickedIdx >= 0 && clickedIdx < len(procs) {
-			m.selectedPID = procs[clickedIdx].PID
+		if pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, clickedIdx); ok {
+			m.selectedPID = pid
+			m.lastSelectedIdx = clickedIdx
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) moveSelection(delta int) {
+	procs := m.filteredProcesses()
+	if len(procs) == 0 {
+		return
+	}
+
+	count := ui.ProcessDisplayCount(procs, m.treeView)
+	if count == 0 {
+		return
+	}
+
+	idx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
+	if idx < 0 {
+		if delta < 0 {
+			idx = count - 1
+		} else {
+			idx = 0
+		}
+	} else {
+		idx += delta
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= count {
+			idx = count - 1
+		}
+	}
+
+	if pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, idx); ok {
+		m.selectedPID = pid
+		m.lastSelectedIdx = idx
+	}
 }
 
 // computeUsedLines returns lines used by header + metrics + help bar.
@@ -560,9 +592,11 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEscape:
 		m.searching = false
 		m.searchQuery = ""
+		m.resolveSelection(m.filteredProcesses())
 	case tea.KeyEnter:
 		m.searching = false
 		// After confirming search, open detail if a process is selected
+		m.resolveSelection(m.filteredProcesses())
 		if m.selectedPID > 0 {
 			return m, fetchProcessDetail(m.selectedPID, m.snap.Processes)
 		}
@@ -570,29 +604,15 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r := []rune(m.searchQuery)
 		if len(r) > 0 {
 			m.searchQuery = string(r[:len(r)-1])
+			m.resolveSelection(m.filteredProcesses())
 		}
 	case tea.KeyUp:
-		procs := m.filteredProcesses()
-		if len(procs) > 0 {
-			idx := m.resolveSelection(procs)
-			if idx < 0 {
-				m.selectedPID = procs[len(procs)-1].PID
-			} else if idx > 0 {
-				m.selectedPID = procs[idx-1].PID
-			}
-		}
+		m.moveSelection(-1)
 	case tea.KeyDown:
-		procs := m.filteredProcesses()
-		if len(procs) > 0 {
-			idx := m.resolveSelection(procs)
-			if idx < 0 {
-				m.selectedPID = procs[0].PID
-			} else if idx < len(procs)-1 {
-				m.selectedPID = procs[idx+1].PID
-			}
-		}
+		m.moveSelection(1)
 	case tea.KeyRunes:
 		m.searchQuery += string(msg.Runes)
+		m.resolveSelection(m.filteredProcesses())
 	}
 	return m, nil
 }
@@ -630,36 +650,22 @@ func (m Model) filteredProcesses() []metrics.ProcessInfo {
 	return result
 }
 
-// findSelectionIndex resolves selectedPID to an index in the given slice.
-// Returns -1 when no selection. When PID disappears, stays at same visual
-// position (clamped to list bounds) rather than jumping to 0.
-func findSelectionIndex(selectedPID int32, procs []metrics.ProcessInfo, lastIdx int) (int, int32) {
-	if selectedPID == 0 {
-		return -1, 0
-	}
-	for i, p := range procs {
-		if p.PID == selectedPID {
-			return i, selectedPID
-		}
-	}
-	if len(procs) == 0 {
-		return -1, 0
-	}
-	// PID disappeared — pick closest position
-	idx := lastIdx
-	if idx >= len(procs) {
-		idx = len(procs) - 1
-	}
-	if idx < 0 {
-		idx = 0
-	}
-	return idx, procs[idx].PID
-}
-
 // resolveSelection updates m.selectedPID and m.lastSelectedIdx and returns
 // the current index. Safe to call from Update handlers (value receiver + return).
 func (m *Model) resolveSelection(procs []metrics.ProcessInfo) int {
-	idx, pid := findSelectionIndex(m.selectedPID, procs, m.lastSelectedIdx)
+	if m.selectedPID == 0 {
+		m.lastSelectedIdx = -1
+		return -1
+	}
+
+	idx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
+	pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, idx)
+	if !ok {
+		m.selectedPID = 0
+		m.lastSelectedIdx = -1
+		return -1
+	}
+
 	m.selectedPID = pid
 	m.lastSelectedIdx = idx
 	return idx

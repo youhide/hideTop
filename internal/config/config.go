@@ -35,16 +35,21 @@ type fileConfig struct {
 }
 
 func Parse() Config {
-	interval := flag.Duration("interval", 1*time.Second,
+	return parse(flag.CommandLine, os.Args[1:], loadConfigFile)
+}
+
+func parse(fs *flag.FlagSet, args []string, loadFile func() *fileConfig) Config {
+	interval := fs.Duration("interval", 1*time.Second,
 		"metrics refresh interval (e.g. 500ms, 1s, 2s)")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	showVersionShort := flag.Bool("v", false, "print version and exit")
-	debug := flag.Bool("debug", false, "enable debug logging to stderr")
-	theme := flag.String("theme", "", "color theme (dark, light, dracula, nord, monokai)")
-	noGPU := flag.Bool("no-gpu", false, "disable GPU metrics")
-	noTemp := flag.Bool("no-temp", false, "disable temperature metrics")
-	procLimit := flag.Int("proc-limit", 0, "max number of processes to display (0 = 50)")
-	flag.Parse()
+	showVersion := fs.Bool("version", false, "print version and exit")
+	showVersionShort := fs.Bool("v", false, "print version and exit")
+	debug := fs.Bool("debug", false, "enable debug logging to stderr")
+	theme := fs.String("theme", "", "color theme (dark, light, dracula, nord, monokai)")
+	noGPU := fs.Bool("no-gpu", false, "disable GPU metrics")
+	noTemp := fs.Bool("no-temp", false, "disable temperature metrics")
+	procLimit := fs.Int("proc-limit", 0, "max number of processes to display (0 = 50)")
+	_ = fs.Parse(args)
+	setFlags := visitedFlags(fs)
 
 	cfg := Config{
 		RefreshInterval: *interval,
@@ -57,21 +62,21 @@ func Parse() Config {
 	}
 
 	// Load config file (flags take precedence)
-	fc := loadConfigFile()
+	fc := loadFile()
 	if fc != nil {
-		if cfg.Theme == "" && fc.Theme != "" {
+		if !setFlags["theme"] && fc.Theme != "" {
 			cfg.Theme = fc.Theme
 		}
-		if !cfg.Debug && fc.Debug {
+		if !setFlags["debug"] && fc.Debug {
 			cfg.Debug = true
 		}
-		if !cfg.NoGPU && fc.NoGPU {
+		if !setFlags["no-gpu"] && fc.NoGPU {
 			cfg.NoGPU = true
 		}
-		if !cfg.NoTemp && fc.NoTemp {
+		if !setFlags["no-temp"] && fc.NoTemp {
 			cfg.NoTemp = true
 		}
-		if fc.Interval != "" && *interval == 1*time.Second {
+		if !setFlags["interval"] && fc.Interval != "" {
 			if d, err := time.ParseDuration(fc.Interval); err == nil {
 				cfg.RefreshInterval = d
 			}
@@ -91,7 +96,7 @@ func Parse() Config {
 	}
 
 	// Apply proc_limit from config file if not set via CLI
-	if fc != nil && cfg.ProcLimit == 0 && fc.ProcLimit > 0 {
+	if fc != nil && !setFlags["proc-limit"] && fc.ProcLimit > 0 {
 		cfg.ProcLimit = fc.ProcLimit
 	}
 	if cfg.ProcLimit <= 0 {
@@ -99,6 +104,14 @@ func Parse() Config {
 	}
 
 	return cfg
+}
+
+func visitedFlags(fs *flag.FlagSet) map[string]bool {
+	set := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) {
+		set[f.Name] = true
+	})
+	return set
 }
 
 func loadConfigFile() *fileConfig {

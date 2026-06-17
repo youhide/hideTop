@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/youhide/hideTop/internal/metrics"
 )
@@ -108,5 +109,15 @@ func TestRenderProcesses_TreeViewHeader(t *testing.T) {
 	}
 	if !strings.Contains(result, "[user]") {
 		t.Error("expected [user] indicator in output")
+	}
+}
+
+func TestTruncateSensorLabelPreservesUTF8(t *testing.T) {
+	got := truncateSensorLabel("温度センサー", 5)
+	if !utf8.ValidString(got) {
+		t.Fatalf("result is not valid UTF-8: %q", got)
+	}
+	if got != "温度..." {
+		t.Fatalf("unexpected truncation: got %q", got)
 	}
 }

@@ -93,11 +93,5 @@ func RenderTemperature(temp metrics.TemperatureStats, width int) string {
 
 // truncateSensorLabel truncates a sensor label for compact display.
 func truncateSensorLabel(label string, maxLen int) string {
-	if len(label) <= maxLen {
-		return label
-	}
-	if maxLen <= 3 {
-		return label[:maxLen]
-	}
-	return label[:maxLen-3] + "..."
+	return truncateRunes(label, maxLen)
 }

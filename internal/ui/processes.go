@@ -12,6 +12,7 @@ import (
 type ProcessViewState struct {
 	SortBy      metrics.SortField
 	SelectedIdx int // -1 = no selection
+	SelectedPID int32
 	SearchQuery string
 	Searching   bool
 	TreeView    bool
@@ -86,22 +87,14 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 	b.WriteString(sep)
 	b.WriteByte('\n')
 
-	// Build display list: flat or tree
-	var displayList []displayProc
-
-	if state.TreeView && len(procs) > 0 {
-		displayList = buildTreeDisplay(procs)
-	} else {
-		for _, p := range procs {
-			displayList = append(displayList, displayProc{proc: p})
-		}
-	}
+	displayList := processDisplayList(procs, state.TreeView)
+	selectedIdx := displayIndexForPID(displayList, state.SelectedPID, state.SelectedIdx)
 
 	// Compute visible window that keeps selection on screen
 	n := len(displayList)
 	start := 0
-	if maxRows > 0 && state.SelectedIdx >= maxRows {
-		start = state.SelectedIdx - maxRows + 1
+	if maxRows > 0 && selectedIdx >= maxRows {
+		start = selectedIdx - maxRows + 1
 	}
 	end := n
 	if maxRows > 0 {
@@ -144,7 +137,7 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 			lipgloss.NewStyle().Foreground(memColor).Width(8).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.MemPercent)),
 		)
 
-		if state.SelectedIdx >= 0 && i == state.SelectedIdx {
+		if selectedIdx >= 0 && i == selectedIdx {
 			visible := lipgloss.Width(line)
 			if visible < innerW {
 				line += strings.Repeat(" ", innerW-visible)
@@ -164,10 +157,59 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 	return PanelStyle.Width(width - 2).Render(b.String())
 }
 
+// ProcessDisplayCount returns the number of processes in the rendered order.
+func ProcessDisplayCount(procs []metrics.ProcessInfo, treeView bool) int {
+	return len(processDisplayList(procs, treeView))
+}
+
+// DisplayIndexForPID returns a PID's index in the rendered order.
+func DisplayIndexForPID(procs []metrics.ProcessInfo, treeView bool, pid int32, fallbackIdx int) int {
+	return displayIndexForPID(processDisplayList(procs, treeView), pid, fallbackIdx)
+}
+
+// PIDAtDisplayIndex returns the PID at an index in the rendered order.
+func PIDAtDisplayIndex(procs []metrics.ProcessInfo, treeView bool, idx int) (int32, bool) {
+	displayList := processDisplayList(procs, treeView)
+	if idx < 0 || idx >= len(displayList) {
+		return 0, false
+	}
+	return displayList[idx].proc.PID, true
+}
+
 // displayProc wraps a process with a tree-indent prefix.
 type displayProc struct {
 	proc   metrics.ProcessInfo
 	prefix string
+}
+
+func processDisplayList(procs []metrics.ProcessInfo, treeView bool) []displayProc {
+	if treeView && len(procs) > 0 {
+		return buildTreeDisplay(procs)
+	}
+
+	displayList := make([]displayProc, 0, len(procs))
+	for _, p := range procs {
+		displayList = append(displayList, displayProc{proc: p})
+	}
+	return displayList
+}
+
+func displayIndexForPID(displayList []displayProc, pid int32, fallbackIdx int) int {
+	if pid > 0 {
+		for i, dp := range displayList {
+			if dp.proc.PID == pid {
+				return i
+			}
+		}
+	}
+
+	if fallbackIdx < 0 || len(displayList) == 0 {
+		return -1
+	}
+	if fallbackIdx >= len(displayList) {
+		return len(displayList) - 1
+	}
+	return fallbackIdx
 }
 
 // buildTreeDisplay builds a tree-ordered display list from a flat process list.
