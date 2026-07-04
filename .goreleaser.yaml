@@ -1,11 +1,13 @@
 version: 2
 
+project_name: hideTop
+
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - main: ./src/main.go
+  - main: ./src
     binary: hidetop
     env:
       - CGO_ENABLED=0
@@ -42,26 +44,11 @@ changelog:
       - "^docs:"
       - "^test:"
 
-homebrew_casks:
-  - name: hidetop
-    binaries:
-      - hidetop
-    directory: Casks
-    repository:
-      owner: youhide
-      name: homebrew-youhide
-      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    commit_author:
-      name: Youri T. K. K. Mattar
-      email: youri@youhide.com.br
-    homepage: "https://github.com/youhide/hideTop"
-    description: "A modern terminal-based system monitor written in Go, offering real-time CPU, memory, Apple Silicon GPU metrics, energy impact, and an interactive process list."
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/hidetop"]
-          end
+# The Homebrew formula is published to youhide/homebrew-youhide by a dedicated
+# CI step (.github/scripts/update-tap-formula.sh) that reads these checksums —
+# GoReleaser only builds the binaries, archives and GitHub release here.
+checksum:
+  name_template: "checksums.txt"
 
 release:
   footer: >-
