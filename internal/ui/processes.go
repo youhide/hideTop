@@ -38,6 +38,30 @@ func columnHeader(label string, width int, align lipgloss.Position, sortBy, targ
 	return style.Render(text)
 }
 
+// ProcessSortAtX maps an x-coordinate clicked on the process column-header row
+// to the sort field of that column. It is only meaningful in the wide
+// (non-compact) layout, where the column positions are fixed; ok is false when
+// the click did not land on a sortable column (PID, CPU% or MEM%).
+//
+// The relative column ranges below mirror the header built in RenderProcesses:
+//
+//	"  " PID(7) " " S(2) " " USER(10) " " NAME(20) " " THR(4) " " CPU%(8) " " MEM%(8)
+func ProcessSortAtX(width, x int) (metrics.SortField, bool) {
+	if contentWidth(width) < 68 {
+		return 0, false
+	}
+	rel := x - (PanelStyle.GetBorderLeftSize() + PanelStyle.GetPaddingLeft())
+	switch {
+	case rel >= 2 && rel < 9:
+		return metrics.SortByPID, true
+	case rel >= 50 && rel < 58:
+		return metrics.SortByCPU, true
+	case rel >= 59 && rel < 67:
+		return metrics.SortByMem, true
+	}
+	return 0, false
+}
+
 func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width, maxRows int) string {
 	var b strings.Builder
 	innerW := contentWidth(width)

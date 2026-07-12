@@ -16,8 +16,10 @@ type Config struct {
 	Theme           string
 	NoGPU           bool
 	NoTemp          bool
+	NoPorts         bool
 	FilterUsers     []string
 	ProcLimit       int
+	ExportDir       string
 }
 
 // DefaultFilterUsers is used when no custom filter is configured.
@@ -29,9 +31,11 @@ type fileConfig struct {
 	Theme       string   `json:"theme"`
 	NoGPU       bool     `json:"no_gpu"`
 	NoTemp      bool     `json:"no_temp"`
+	NoPorts     bool     `json:"no_ports"`
 	Debug       bool     `json:"debug"`
 	FilterUsers []string `json:"filter_users"`
 	ProcLimit   int      `json:"proc_limit"`
+	ExportDir   string   `json:"export_dir"`
 }
 
 func Parse() Config {
@@ -47,7 +51,9 @@ func parse(fs *flag.FlagSet, args []string, loadFile func() *fileConfig) Config 
 	theme := fs.String("theme", "", "color theme (dark, light, dracula, nord, monokai)")
 	noGPU := fs.Bool("no-gpu", false, "disable GPU metrics")
 	noTemp := fs.Bool("no-temp", false, "disable temperature metrics")
+	noPorts := fs.Bool("no-ports", false, "disable listening ports / connections collection")
 	procLimit := fs.Int("proc-limit", 0, "max number of processes to display (0 = 50)")
+	exportDir := fs.String("export-dir", "", "directory for JSON snapshot exports (default: home directory)")
 	_ = fs.Parse(args)
 	setFlags := visitedFlags(fs)
 
@@ -58,7 +64,9 @@ func parse(fs *flag.FlagSet, args []string, loadFile func() *fileConfig) Config 
 		Theme:           *theme,
 		NoGPU:           *noGPU,
 		NoTemp:          *noTemp,
+		NoPorts:         *noPorts,
 		ProcLimit:       *procLimit,
+		ExportDir:       *exportDir,
 	}
 
 	// Load config file (flags take precedence)
@@ -75,6 +83,12 @@ func parse(fs *flag.FlagSet, args []string, loadFile func() *fileConfig) Config 
 		}
 		if !setFlags["no-temp"] && fc.NoTemp {
 			cfg.NoTemp = true
+		}
+		if !setFlags["no-ports"] && fc.NoPorts {
+			cfg.NoPorts = true
+		}
+		if !setFlags["export-dir"] && fc.ExportDir != "" {
+			cfg.ExportDir = fc.ExportDir
 		}
 		if !setFlags["interval"] && fc.Interval != "" {
 			if d, err := time.ParseDuration(fc.Interval); err == nil {

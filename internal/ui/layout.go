@@ -22,14 +22,6 @@ func contentWidth(width int) int {
 	return w
 }
 
-func overlayWidth(width int) int {
-	w := width - 4
-	if w < 1 {
-		return 1
-	}
-	return w
-}
-
 func fitPlain(s string, maxWidth int) string {
 	if maxWidth <= 0 {
 		return ""

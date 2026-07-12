@@ -13,11 +13,12 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 - **Temperature** — up to 6 sensors in a 2-column grid, auto-detects CPU/GPU temps, colour-coded by threshold (green < 60°C, yellow 60–80°C, red > 80°C). Disable with `--no-temp`
 - **Network** — total in/out throughput (bytes/s), per-interface breakdown (up to 4 active interfaces)
 - **Disk** — total read/write throughput (bytes/s), root filesystem usage
+- **Ports & connections** — listening ports (proto, port, process) shown in the Network panel; press `n` for a full-screen view of all listening ports plus active connections (local/remote/state/process). Collected on a throttled cadence via `lsof`/sysfs, no sudo. Disable with `--no-ports`
 - **Battery** — percentage and charging status in the header bar (macOS via `pmset`, Linux via sysfs)
 - **Processes** — sortable by CPU, memory, or PID with visual sort indicators (▲/▼); columns for PID, state (R/S/Z/T), user, name, threads, CPU%, MEM%; PID-based row selection; incremental search by name, PID, or username; tree view; system process filter; process detail panel (Enter); kill / force kill with confirmation
 - **Themes** — 5 built-in themes: `dark` (default), `light`, `dracula`, `nord`, `monokai`
 - **Responsive layout** — two-column layout at ≥ 110 cols, single-column stacked on narrower terminals
-- **Mouse support** — scroll wheel to navigate process list, click to select
+- **Mouse support** — scroll wheel to navigate the process list, click a row to select; click a PID/CPU%/MEM% column header to sort by it; scrolling over the Temperature or Network panel scrolls that panel to reveal hidden sensors/interfaces
 - **Export** — snapshot to JSON with `e`
 - **Configurable** — CLI flags and `~/.config/hideTop/config.json`
 
@@ -26,13 +27,18 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 | Key | Action |
 |-----|--------|
 | `↑` `↓` / `j` `k` | Move process selection |
+| `PgUp` `PgDn` | Jump one page up / down |
+| `Home` `End` / `g` `G` | Jump to first / last process |
 | `/` | Start incremental search (name, PID, or user), `Esc` to cancel |
 | `Enter` | Open process detail panel |
 | `c` | Sort by CPU% (descending) |
 | `m` | Sort by MEM% (descending) |
 | `p` | Sort by PID (ascending) |
+| `Space` | Pause / resume metrics auto-refresh |
 | `t` | Toggle tree view |
 | `s` | Toggle system process filter |
+| `z` | Reset Temperature / Network panel scroll |
+| `n` | Open the network / ports view (`Esc` or `n` to close) |
 | `x` | Kill selected process (SIGTERM, asks for confirmation) |
 | `K` | Force kill selected process (SIGKILL, asks for confirmation) |
 | `+` / `=` | Increase refresh interval (+250ms) |
@@ -76,6 +82,8 @@ CLI flags take precedence over the config file.
 | `--theme` | `dark` | Colour theme (`dark`, `light`, `dracula`, `nord`, `monokai`) |
 | `--no-gpu` | `false` | Disable GPU metrics |
 | `--no-temp` | `false` | Disable temperature metrics |
+| `--no-ports` | `false` | Disable listening ports / connections collection |
+| `--export-dir` | home | Directory for JSON snapshot exports (`e`); `~` is expanded |
 | `--debug` | `false` | Enable debug logging to stderr |
 | `--version` / `-v` | — | Print version and exit |
 
@@ -89,7 +97,9 @@ CLI flags take precedence over the config file.
   "theme": "dracula",
   "no_gpu": false,
   "no_temp": false,
+  "no_ports": false,
   "debug": false,
+  "export_dir": "~/Desktop",
   "filter_users": ["root", "_windowserver", "nobody"]
 }
 ```

@@ -1,73 +1,72 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
+// RenderHelp renders the single-line hint bar at the bottom of the screen.
+// It is always exactly one line (MaxHeight 1) so it can never wrap and get
+// clipped by the height guard; `?` opens the full help overlay with everything.
 func RenderHelp(width int) string {
-	if width < 40 {
-		return lipgloss.NewStyle().
-			Width(width).
-			Align(lipgloss.Center).
-			Render(fmt.Sprintf("%s %s  %s %s",
-				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("?"),
-				SubtleStyle.Render("help"),
-				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("q"),
-				SubtleStyle.Render("quit"),
-			))
-	}
-	if width < 70 {
-		return lipgloss.NewStyle().
-			Width(width).
-			Align(lipgloss.Center).
-			Render(fmt.Sprintf("%s %s  %s %s  %s %s  %s %s",
-				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("↑↓"),
-				SubtleStyle.Render("move"),
-				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("/"),
-				SubtleStyle.Render("search"),
-				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("?"),
-				SubtleStyle.Render("help"),
-				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("q"),
-				SubtleStyle.Render("quit"),
-			))
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTitle)
+	seg := func(k, d string) string {
+		return keyStyle.Render(k) + " " + SubtleStyle.Render(d)
 	}
 
-	keys := []struct{ key, desc string }{
-		{"↑↓/jk", "move"},
-		{"/", "search"},
-		{"c/m/p", "sort"},
-		{"t", "tree"},
-		{"s", "sys filter"},
-		{"Enter", "detail"},
-		{"x/K", "kill"},
-		{"+/-", "interval"},
-		{"e", "export"},
-		{"?", "help"},
-		{"q", "quit"},
-	}
-
-	var line string
-	for i, k := range keys {
-		if i > 0 {
-			line += SubtleStyle.Render("  │  ")
+	var keys []struct{ key, desc string }
+	switch {
+	case width < 44:
+		keys = []struct{ key, desc string }{
+			{"?", "help"}, {"q", "quit"},
 		}
-		line += fmt.Sprintf("%s %s",
-			lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render(k.key),
-			SubtleStyle.Render(k.desc),
-		)
+	case width < 80:
+		keys = []struct{ key, desc string }{
+			{"↑↓", "move"}, {"/", "search"}, {"n", "net"}, {"?", "help"}, {"q", "quit"},
+		}
+	default:
+		keys = []struct{ key, desc string }{
+			{"↑↓/jk", "move"}, {"/", "search"}, {"c/m/p", "sort"},
+			{"n", "net"}, {"?", "more"}, {"q", "quit"},
+		}
 	}
+
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = seg(k.key, k.desc)
+	}
+	line := strings.Join(parts, SubtleStyle.Render("   "))
 
 	return lipgloss.NewStyle().
 		Width(width).
 		Align(lipgloss.Center).
+		MaxHeight(1).
 		Render(line)
 }
 
-// RenderHelpOverlay renders a full-screen help overlay.
+// RenderHelpOverlay renders the full-screen help overlay (non-scrolled).
 func RenderHelpOverlay(width, height int, version string) string {
+	return RenderHelpOverlayScroll(width, height, version, 0)
+}
+
+// RenderHelpOverlayScroll renders the help overlay at a scroll offset.
+func RenderHelpOverlayScroll(width, height int, version string, scroll int) string {
+	title := "hideTop Help"
+	if version != "" {
+		title += "  " + version
+	}
+	return RenderOverlay(title, helpOverlayLines, width, height, scroll)
+}
+
+// HelpOverlayMaxScroll returns the max scroll offset for the help overlay.
+func HelpOverlayMaxScroll(width, height int) int {
+	return OverlayMaxScroll(len(helpOverlayLines(overlayInnerWidth(width))), height)
+}
+
+// helpOverlayLines builds the help content as one string per line, fitted to
+// the given inner content width.
+func helpOverlayLines(cw int) []string {
 	sections := []struct {
 		title string
 		keys  []struct{ key, desc string }
@@ -77,6 +76,9 @@ func RenderHelpOverlay(width, height int, version string) string {
 			keys: []struct{ key, desc string }{
 				{"↑ / k", "Move up in process list"},
 				{"↓ / j", "Move down in process list"},
+				{"PgUp/PgDn", "Jump one page up / down"},
+				{"Home/End", "Jump to first / last (g / G)"},
+				{"Wheel", "Scroll process list; over Temp/Net panels scrolls them"},
 				{"/", "Start incremental search"},
 				{"Esc", "Cancel search / close help / close detail"},
 				{"Enter", "Open process detail panel"},
@@ -88,6 +90,7 @@ func RenderHelpOverlay(width, height int, version string) string {
 				{"c", "Sort by CPU% (descending)"},
 				{"m", "Sort by MEM% (descending)"},
 				{"p", "Sort by PID (ascending)"},
+				{"Click", "Click a PID/CPU%/MEM% column header to sort"},
 			},
 		},
 		{
@@ -102,6 +105,9 @@ func RenderHelpOverlay(width, height int, version string) string {
 		{
 			title: "Display",
 			keys: []struct{ key, desc string }{
+				{"n", "Open network / ports view"},
+				{"Space", "Pause / resume auto-refresh"},
+				{"z", "Reset Temp/Network panel scroll"},
 				{"+/=", "Increase refresh interval (+250ms)"},
 				{"-/_", "Decrease refresh interval (-250ms)"},
 				{"e", "Export snapshot to JSON"},
@@ -111,34 +117,21 @@ func RenderHelpOverlay(width, height int, version string) string {
 		},
 	}
 
-	var b strings.Builder
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render("hideTop Help"))
-	if version != "" {
-		b.WriteString(SubtleStyle.Render("  " + version))
-	}
-	b.WriteString("\n\n")
-
-	for _, section := range sections {
-		b.WriteString(HeaderStyle.Render(section.title))
-		b.WriteString("\n")
-		for _, k := range section.keys {
-			b.WriteString(fmt.Sprintf("  %s  %s\n",
-				lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Width(12).Render(k.key),
-				SubtleStyle.Render(k.desc),
-			))
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTitle)
+	var lines []string
+	for si, section := range sections {
+		if si > 0 {
+			lines = append(lines, "")
 		}
-		b.WriteString("\n")
+		lines = append(lines, HeaderStyle.Render(fitPlain(section.title, cw)))
+		descW := cw - 16
+		if descW < 1 {
+			descW = 1
+		}
+		for _, k := range section.keys {
+			lines = append(lines, "  "+keyStyle.Width(12).Render(k.key)+"  "+
+				SubtleStyle.Render(fitPlain(k.desc, descW)))
+		}
 	}
-
-	b.WriteString(SubtleStyle.Render("Press ? or Esc to close"))
-
-	content := b.String()
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorTitle).
-		Padding(1, 2).
-		Width(overlayWidth(width)).
-		Render(content)
-
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+	return lines
 }

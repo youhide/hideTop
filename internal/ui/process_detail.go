@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/youhide/hideTop/internal/metrics"
@@ -18,24 +17,37 @@ type ProcessDetail struct {
 	CreateTime int64  // milliseconds since epoch
 }
 
-// RenderProcessDetail renders a full-screen overlay with extended process info.
+// RenderProcessDetail renders the process detail overlay (non-scrolled).
 func RenderProcessDetail(d ProcessDetail, width, height int) string {
-	var b strings.Builder
-	innerW := contentWidth(width)
+	return RenderProcessDetailScroll(d, width, height, 0)
+}
 
-	title := fitPlain(fmt.Sprintf("Process %d — %s", d.PID, d.Name), innerW)
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render(title))
-	b.WriteString("\n\n")
+// RenderProcessDetailScroll renders the process detail overlay at a scroll
+// offset, inside the standard overlay box.
+func RenderProcessDetailScroll(d ProcessDetail, width, height, scroll int) string {
+	title := fmt.Sprintf("Process %d — %s", d.PID, d.Name)
+	return RenderOverlay(title, func(cw int) []string {
+		return processDetailLines(d, cw)
+	}, width, height, scroll)
+}
+
+// ProcessDetailMaxScroll returns the max scroll offset for the detail overlay.
+func ProcessDetailMaxScroll(d ProcessDetail, width, height int) int {
+	return OverlayMaxScroll(len(processDetailLines(d, overlayInnerWidth(width))), height)
+}
+
+// processDetailLines builds the detail content as one string per line.
+func processDetailLines(d ProcessDetail, cw int) []string {
+	var lines []string
 
 	field := func(label, value string) {
-		valueW := innerW - 18
+		valueW := cw - 18
 		if valueW < 1 {
 			valueW = 1
 		}
-		b.WriteString(fmt.Sprintf("  %s  %s\n",
-			lipgloss.NewStyle().Bold(true).Foreground(ColorHeader).Width(14).Render(label),
-			SubtleStyle.Render(fitPlain(value, valueW)),
-		))
+		lines = append(lines, "  "+
+			lipgloss.NewStyle().Bold(true).Foreground(ColorHeader).Width(14).Render(label)+"  "+
+			SubtleStyle.Render(fitPlain(value, valueW)))
 	}
 
 	field("PID", fmt.Sprintf("%d", d.PID))
@@ -56,29 +68,17 @@ func RenderProcessDetail(d ProcessDetail, width, height int) string {
 		field("Open FDs", fmt.Sprintf("%d", d.NumFDs))
 	}
 
-	b.WriteString("\n")
 	if d.Cmdline != "" {
-		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorHeader).Render("  Command Line"))
-		b.WriteString("\n")
-		maxW := width - 12
+		lines = append(lines, "")
+		lines = append(lines, HeaderStyle.Render("  Command Line"))
+		maxW := cw - 2
 		if maxW < 1 {
 			maxW = 1
 		}
 		for _, line := range wrapPlain(d.Cmdline, maxW) {
-			b.WriteString("  " + SubtleStyle.Render(line) + "\n")
+			lines = append(lines, "  "+SubtleStyle.Render(line))
 		}
 	}
 
-	b.WriteString("\n")
-	b.WriteString(SubtleStyle.Render("  Press Esc or Enter to close"))
-
-	content := b.String()
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorTitle).
-		Padding(1, 2).
-		Width(overlayWidth(width)).
-		Render(content)
-
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+	return lines
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,8 +31,17 @@ type processDetailMsg struct {
 	err    error
 }
 
+type connectionsMsg metrics.NetConnections
+
 // historySize is the max number of samples kept for sparklines.
 const historySize = 60
+
+// mouseWheelStep is how many process rows one wheel notch moves the selection.
+const mouseWheelStep = 3
+
+// connectionsSampleEvery throttles how often listening ports / connections are
+// collected (they shell out to lsof on macOS, so this is deliberately slow).
+const connectionsSampleEvery = 3 * time.Second
 
 type Model struct {
 	cfg           config.Config
@@ -56,11 +66,23 @@ type Model struct {
 	memHistory []float64
 	gpuHistory []float64
 
+	// Per-panel scroll offsets (mouse wheel over the panel)
+	tempScroll int
+	netScroll  int
+
+	// Listening ports / connections (collected on a throttled cadence)
+	conns           metrics.NetConnections
+	collectingConns bool
+	connsSampleAt   time.Time
+	showNetwork     bool // full-screen network/ports overlay
+	overlayScroll   int  // scroll offset shared by whichever overlay is open
+
 	// UI state
 	showHelp        bool
 	showDetail      *ui.ProcessDetail // non-nil = showing detail overlay
 	treeView        bool
 	hideSystem      bool
+	paused          bool       // metrics auto-refresh paused by the user
 	confirmKill     killSignal // non-zero = awaiting Y/N confirmation
 	pidToKill       int32      // PID captured when the kill prompt was shown
 	killMsg         string     // status message after kill attempt
@@ -99,7 +121,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds := []tea.Cmd{tick(m.cfg.RefreshInterval)}
-		if !m.collecting {
+		if !m.collecting && !m.paused {
 			ctx, cancel := context.WithTimeout(context.Background(), m.collectionTimeout())
 			m.collectCancel = cancel
 			m.collecting = true
@@ -107,6 +129,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				SkipGPU:  m.cfg.NoGPU,
 				SkipTemp: m.cfg.NoTemp,
 			}))
+		}
+		if !m.cfg.NoPorts && !m.collectingConns && !m.paused &&
+			(m.connsSampleAt.IsZero() || time.Since(m.connsSampleAt) >= connectionsSampleEvery) {
+			m.collectingConns = true
+			m.connsSampleAt = time.Now()
+			cmds = append(cmds, collectConnections())
 		}
 		return m, tea.Batch(cmds...)
 
@@ -130,6 +158,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.snap = newSnap
 
+		// Keep per-panel scroll offsets within bounds as content changes.
+		if mx := ui.TemperatureScrollMax(m.snap.Temperature); m.tempScroll > mx {
+			m.tempScroll = mx
+		}
+		if mx := ui.NetworkScrollMax(m.netDelta, m.conns.Listening); m.netScroll > mx {
+			m.netScroll = mx
+		}
+
 		// Update selection tracking with new process list
 		m.resolveSelection(m.filteredProcesses())
 
@@ -140,6 +176,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.gpuHistory = appendHistory(m.gpuHistory, newSnap.GPU.Utilization)
 		}
 
+		return m, nil
+
+	case connectionsMsg:
+		m.collectingConns = false
+		if nc := metrics.NetConnections(msg); nc.Available {
+			m.conns = nc
+			if mx := ui.NetworkScrollMax(m.netDelta, m.conns.Listening); m.netScroll > mx {
+				m.netScroll = mx
+			}
+		}
 		return m, nil
 
 	case flashDoneMsg:
@@ -153,6 +199,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case processDetailMsg:
 		if msg.err == nil {
 			m.showDetail = &msg.detail
+			m.overlayScroll = 0
 		} else {
 			m.killMsg = msg.err.Error()
 			return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return killMsgClearMsg{} })
@@ -178,11 +225,15 @@ func (m Model) View() string {
 	}
 
 	if m.showHelp {
-		return ui.RenderHelpOverlay(w, h, m.version)
+		return ui.RenderHelpOverlayScroll(w, h, m.version, m.overlayScroll)
 	}
 
 	if m.showDetail != nil {
-		return ui.RenderProcessDetail(*m.showDetail, w, h)
+		return ui.RenderProcessDetailScroll(*m.showDetail, w, h, m.overlayScroll)
+	}
+
+	if m.showNetwork {
+		return ui.RenderNetworkOverlay(m.conns, m.collectingConns, w, h, m.overlayScroll)
 	}
 
 	// Header
@@ -217,6 +268,9 @@ func (m Model) View() string {
 	}
 	if m.collecting {
 		appendHeader(ui.SubtleStyle.Render("  collecting"))
+	}
+	if m.paused {
+		appendHeaderIfRoom("paused", ui.ColorYellow)
 	}
 	if stale := m.snap.Status.StaleMetrics(); len(stale) > 0 {
 		label := "stale:" + strings.Join(stale, ",")
@@ -270,18 +324,28 @@ func (m Model) View() string {
 	procOverhead := strings.Count(emptyProc, "\n") + 1
 
 	procRows := h - usedLines - procOverhead
-	if procRows < 3 {
-		procRows = 3
+	if procRows < 1 {
+		procRows = 1
 	}
 	procPanel := ui.RenderProcesses(procs, procState, w, procRows)
 	helpBar := ui.RenderHelp(w)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	view := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		metricsSection,
 		procPanel,
 		helpBar,
 	)
+
+	// Safety: never render taller than the terminal, otherwise the top status
+	// bar gets scrolled off-screen in the alt-screen buffer. Keep the top rows
+	// (header + metrics) so the status bar is always visible.
+	if lipgloss.Height(view) > h {
+		lines := strings.Split(view, "\n")
+		view = strings.Join(lines[:h], "\n")
+	}
+
+	return view
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -301,13 +365,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Close detail overlay on Esc or Enter
-	if m.showDetail != nil {
-		switch msg.String() {
-		case "esc", "enter", "q":
-			m.showDetail = nil
-		}
-		return m, nil
+	// Any full-screen overlay (help / detail / network) is scrollable and
+	// shares one handler for a consistent feel.
+	if m.showHelp || m.showDetail != nil || m.showNetwork {
+		return m.handleOverlayKey(msg)
 	}
 
 	if m.searching {
@@ -361,10 +422,27 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveSelection(1)
 	case "k", "up":
 		m.moveSelection(-1)
+	case "pgdown", "ctrl+f":
+		m.moveSelection(m.pageSize())
+	case "pgup", "ctrl+b":
+		m.moveSelection(-m.pageSize())
+	case "home", "g":
+		m.moveToStart()
+	case "end", "G":
+		m.moveToEnd()
+	case " ":
+		m.paused = !m.paused
+	case "z":
+		m.tempScroll = 0
+		m.netScroll = 0
+	case "n":
+		m.showNetwork = true
+		m.overlayScroll = 0
 	case "/":
 		m.searching = true
 	case "?":
-		m.showHelp = !m.showHelp
+		m.showHelp = true
+		m.overlayScroll = 0
 	case "t":
 		m.treeView = !m.treeView
 		m.resolveSelection(m.filteredProcesses())
@@ -396,44 +474,122 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleOverlayKey drives scrolling and closing for whichever full-screen
+// overlay is currently open (help, process detail, or network/ports).
+func (m Model) handleOverlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.showHelp, m.showNetwork, m.showDetail = false, false, nil
+		m.overlayScroll = 0
+		return m, nil
+	case "q":
+		// Close the overlay rather than quitting the app.
+		m.showHelp, m.showNetwork, m.showDetail = false, false, nil
+		m.overlayScroll = 0
+		return m, nil
+	case "?":
+		if m.showHelp {
+			m.showHelp = false
+			m.overlayScroll = 0
+			return m, nil
+		}
+	case "n":
+		if m.showNetwork {
+			m.showNetwork = false
+			m.overlayScroll = 0
+			return m, nil
+		}
+	case "enter":
+		if m.showDetail != nil {
+			m.showDetail = nil
+			m.overlayScroll = 0
+			return m, nil
+		}
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		m.overlayScroll++
+	case "k", "up":
+		if m.overlayScroll > 0 {
+			m.overlayScroll--
+		}
+	case "pgdown", "ctrl+f":
+		m.overlayScroll += 10
+	case "pgup", "ctrl+b":
+		m.overlayScroll -= 10
+		if m.overlayScroll < 0 {
+			m.overlayScroll = 0
+		}
+	case "g", "home":
+		m.overlayScroll = 0
+	case "end", "G":
+		m.overlayScroll = m.overlayMaxScroll()
+	}
+	if mx := m.overlayMaxScroll(); m.overlayScroll > mx {
+		m.overlayScroll = mx
+	}
+	return m, nil
+}
+
+// overlayMaxScroll returns the max scroll offset for the active overlay.
+func (m Model) overlayMaxScroll() int {
+	switch {
+	case m.showHelp:
+		return ui.HelpOverlayMaxScroll(m.width, m.height)
+	case m.showNetwork:
+		return ui.NetworkOverlayMaxScroll(m.conns, m.width, m.height)
+	case m.showDetail != nil:
+		return ui.ProcessDetailMaxScroll(*m.showDetail, m.width, m.height)
+	}
+	return 0
+}
+
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if m.showHelp || m.showDetail != nil || m.confirmKill != 0 {
+	if m.showHelp || m.showDetail != nil || m.showNetwork {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.overlayScroll -= mouseWheelStep
+			if m.overlayScroll < 0 {
+				m.overlayScroll = 0
+			}
+		case tea.MouseButtonWheelDown:
+			m.overlayScroll += mouseWheelStep
+			if mx := m.overlayMaxScroll(); m.overlayScroll > mx {
+				m.overlayScroll = mx
+			}
+		}
+		return m, nil
+	}
+	if m.confirmKill != 0 {
 		return m, nil
 	}
 
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		procs := m.filteredProcesses()
-		if len(procs) > 0 {
-			idx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
-			if idx <= 0 {
-				idx = 0
-			} else {
-				idx--
-			}
-			if pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, idx); ok {
-				m.selectedPID = pid
-				m.lastSelectedIdx = idx
-			}
+		if m.handlePanelScroll(msg, -1) {
+			return m, nil
 		}
+		m.moveSelection(-mouseWheelStep)
 	case tea.MouseButtonWheelDown:
-		procs := m.filteredProcesses()
-		if len(procs) > 0 {
-			idx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
-			count := ui.ProcessDisplayCount(procs, m.treeView)
-			if idx < 0 {
-				idx = 0
-			} else if idx < count-1 {
-				idx++
-			}
-			if pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, idx); ok {
-				m.selectedPID = pid
-				m.lastSelectedIdx = idx
-			}
+		if m.handlePanelScroll(msg, 1) {
+			return m, nil
 		}
+		m.moveSelection(mouseWheelStep)
 	case tea.MouseButtonLeft:
 		if msg.Action == tea.MouseActionRelease {
 			return m, nil
+		}
+		// Click on a sortable column header row toggles that sort.
+		if msg.Y == m.computeProcDataY()-2 {
+			if sf, ok := ui.ProcessSortAtX(m.width, msg.X); ok {
+				if m.sortBy != sf {
+					m.sortBy = sf
+					m.treeView = false
+					m.resolveSelection(m.filteredProcesses())
+				}
+				return m, nil
+			}
 		}
 		procs := m.filteredProcesses()
 		if len(procs) == 0 {
@@ -472,6 +628,36 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handlePanelScroll scrolls a metric panel under the mouse pointer. It returns
+// true when the pointer is over a scrollable panel (temperature or network) and
+// the wheel event was consumed there instead of the process list. dir is -1 for
+// wheel-up and +1 for wheel-down.
+func (m *Model) handlePanelScroll(msg tea.MouseMsg, dir int) bool {
+	switch m.metricPanelAt(msg.X, msg.Y) {
+	case "temp":
+		v := m.tempScroll + dir
+		if mx := ui.TemperatureScrollMax(m.snap.Temperature); v > mx {
+			v = mx
+		}
+		if v < 0 {
+			v = 0
+		}
+		m.tempScroll = v
+		return true
+	case "net":
+		v := m.netScroll + dir
+		if mx := ui.NetworkScrollMax(m.netDelta, m.conns.Listening); v > mx {
+			v = mx
+		}
+		if v < 0 {
+			v = 0
+		}
+		m.netScroll = v
+		return true
+	}
+	return false
+}
+
 func (m *Model) moveSelection(delta int) {
 	procs := m.filteredProcesses()
 	if len(procs) == 0 {
@@ -506,6 +692,44 @@ func (m *Model) moveSelection(delta int) {
 	}
 }
 
+// moveToStart selects the first process in the display order.
+func (m *Model) moveToStart() {
+	procs := m.filteredProcesses()
+	if pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, 0); ok {
+		m.selectedPID = pid
+		m.lastSelectedIdx = 0
+	}
+}
+
+// moveToEnd selects the last process in the display order.
+func (m *Model) moveToEnd() {
+	procs := m.filteredProcesses()
+	count := ui.ProcessDisplayCount(procs, m.treeView)
+	if count == 0 {
+		return
+	}
+	if pid, ok := ui.PIDAtDisplayIndex(procs, m.treeView, count-1); ok {
+		m.selectedPID = pid
+		m.lastSelectedIdx = count - 1
+	}
+}
+
+// pageSize returns the number of process rows visible in the current viewport,
+// used for PageUp/PageDown jumps.
+func (m Model) pageSize() int {
+	h := m.height
+	if h == 0 {
+		h = 24
+	}
+	emptyProc := ui.RenderProcesses(nil, ui.ProcessViewState{}, m.width, 0)
+	procOverhead := strings.Count(emptyProc, "\n") + 1
+	p := h - m.computeUsedLines() - procOverhead
+	if p < 1 {
+		p = 1
+	}
+	return p
+}
+
 // computeUsedLines returns lines used by header + metrics + help bar.
 func (m Model) computeUsedLines() int {
 	w := m.width
@@ -533,67 +757,139 @@ func (m Model) computeUsedLines() int {
 	return usedLines
 }
 
-// buildMetricsSection renders all metric panels and joins them into a single string.
-// This is the single source of truth for panel layout, used by both View() and
-// computeUsedLines() to avoid duplication.
-func (m Model) buildMetricsSection(colL, colR int, twoCol bool) string {
-	cpuPanel := ui.RenderCPU(m.snap.CPU, colL, m.cpuHistory)
-	gpuPanel := ui.RenderGPU(m.snap.GPU, colR, m.gpuHistory)
-	tempPanel := ui.RenderTemperature(m.snap.Temperature, colR)
-	netPanel := ui.RenderNetwork(m.netDelta, colL)
-	diskPanel := ui.RenderDisk(m.diskDelta, m.snap.Disk, colR)
+// metricPanel is a rendered metric panel with its assigned column and height.
+type metricPanel struct {
+	name string
+	s    string
+	h    int
+	col  int // 0 = left column, 1 = right column (always 0 in single-column mode)
+}
 
-	var memPanel string
-	if twoCol && gpuPanel != "" {
-		memPanel = ui.RenderMemory(m.snap.Memory, m.snap.Load, colL, m.memHistory)
-	} else if twoCol {
-		memPanel = ui.RenderMemory(m.snap.Memory, m.snap.Load, colR, m.memHistory)
-	} else {
-		memPanel = ui.RenderMemory(m.snap.Memory, m.snap.Load, colL, m.memHistory)
+// panelRect is the on-screen rectangle of a metric panel, in view rows.
+// Row 0 is the header line; metric panels start at row 1.
+type panelRect struct {
+	name   string
+	col    int
+	y0, y1 int // [y0, y1)
+}
+
+// layoutMetrics renders every metric panel and assigns it to a column. In
+// two-column mode panels are packed greedily into the shorter column so the
+// two columns stay balanced in height regardless of which panels are present
+// (e.g. when there is no GPU). This is the single source of truth for panel
+// placement, shared by rendering, line counting and mouse hit-testing.
+func (m Model) layoutMetrics(colL int, twoCol bool) []metricPanel {
+	cw := colL // all panels render at the left-column width for a stable layout
+
+	tempPanel, _ := ui.RenderTemperatureScroll(m.snap.Temperature, cw, m.tempScroll)
+	netPanel, _ := ui.RenderNetworkScroll(m.netDelta, m.conns.Listening, cw, m.netScroll)
+
+	order := []struct {
+		name string
+		s    string
+	}{
+		{"cpu", ui.RenderCPU(m.snap.CPU, cw, m.cpuHistory)},
+		{"gpu", ui.RenderGPU(m.snap.GPU, cw, m.gpuHistory)},
+		{"mem", ui.RenderMemory(m.snap.Memory, m.snap.Load, cw, m.memHistory)},
+		{"temp", tempPanel},
+		{"net", netPanel},
+		{"disk", diskPanel(m, cw)},
 	}
 
-	var metricRows []string
-
-	if twoCol {
-		if gpuPanel != "" {
-			metricRows = append(metricRows, joinPanelRow(cpuPanel, gpuPanel, colL, colR))
+	var panels []metricPanel
+	var lh, rh int
+	for _, c := range order {
+		if c.s == "" {
+			continue
+		}
+		h := strings.Count(c.s, "\n") + 1
+		col := 0
+		if twoCol && rh < lh {
+			col = 1
+		}
+		if col == 0 {
+			lh += h
 		} else {
-			metricRows = append(metricRows, joinPanelRow(cpuPanel, memPanel, colL, colR))
+			rh += h
 		}
-		if gpuPanel != "" {
-			if tempPanel != "" {
-				metricRows = append(metricRows, joinPanelRow(memPanel, tempPanel, colL, colR))
-			} else {
-				metricRows = append(metricRows, memPanel)
-			}
-		} else if tempPanel != "" {
-			metricRows = append(metricRows, tempPanel)
+		panels = append(panels, metricPanel{name: c.name, s: c.s, h: h, col: col})
+	}
+	return panels
+}
+
+// diskPanel is a tiny helper so the panel order table stays readable.
+func diskPanel(m Model, cw int) string {
+	return ui.RenderDisk(m.diskDelta, m.snap.Disk, cw)
+}
+
+// buildMetricsSection renders all metric panels and joins them into a single
+// string. Shared by View() and computeUsedLines() to avoid duplication.
+func (m Model) buildMetricsSection(colL, colR int, twoCol bool) string {
+	panels := m.layoutMetrics(colL, twoCol)
+
+	if !twoCol {
+		rows := make([]string, 0, len(panels))
+		for _, p := range panels {
+			rows = append(rows, p.s)
 		}
-		if netPanel != "" && diskPanel != "" {
-			metricRows = append(metricRows, joinPanelRow(netPanel, diskPanel, colL, colR))
-		} else if netPanel != "" {
-			metricRows = append(metricRows, netPanel)
-		} else if diskPanel != "" {
-			metricRows = append(metricRows, diskPanel)
-		}
-	} else {
-		metricRows = append(metricRows, cpuPanel)
-		if gpuPanel != "" {
-			metricRows = append(metricRows, gpuPanel)
-		}
-		metricRows = append(metricRows, memPanel)
-		if tempPanel != "" {
-			metricRows = append(metricRows, tempPanel)
-		}
-		if netPanel != "" {
-			metricRows = append(metricRows, netPanel)
-		}
-		if diskPanel != "" {
-			metricRows = append(metricRows, diskPanel)
-		}
+		return lipgloss.JoinVertical(lipgloss.Left, rows...)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, metricRows...)
+	var left, right []string
+	for _, p := range panels {
+		if p.col == 0 {
+			left = append(left, p.s)
+		} else {
+			right = append(right, p.s)
+		}
+	}
+	leftCol := lipgloss.NewStyle().Width(colL).Render(lipgloss.JoinVertical(lipgloss.Left, left...))
+	rightCol := lipgloss.NewStyle().Width(colR).Render(lipgloss.JoinVertical(lipgloss.Left, right...))
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftCol, rightCol)
+}
+
+// metricRects returns the on-screen rectangle of each metric panel, used for
+// mouse hit-testing. Left and right columns stack independently below the
+// header row.
+func (m Model) metricRects(colL int, twoCol bool) []panelRect {
+	panels := m.layoutMetrics(colL, twoCol)
+	const headerRows = 1
+	ly, ry := headerRows, headerRows
+	rects := make([]panelRect, 0, len(panels))
+	for _, p := range panels {
+		if twoCol && p.col == 1 {
+			rects = append(rects, panelRect{name: p.name, col: 1, y0: ry, y1: ry + p.h})
+			ry += p.h
+		} else {
+			rects = append(rects, panelRect{name: p.name, col: 0, y0: ly, y1: ly + p.h})
+			ly += p.h
+		}
+	}
+	return rects
+}
+
+// metricPanelAt returns the name of the metric panel under the given screen
+// coordinates, or "" if none (e.g. the pointer is over the process list).
+func (m Model) metricPanelAt(x, y int) string {
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	twoCol := w >= 110
+	colL := w
+	if twoCol {
+		colL = w / 2
+	}
+	col := 0
+	if twoCol && x >= colL {
+		col = 1
+	}
+	for _, r := range m.metricRects(colL, twoCol) {
+		if r.col == col && y >= r.y0 && y < r.y1 {
+			return r.name
+		}
+	}
+	return ""
 }
 
 // computeProcDataY returns the Y line where process data rows begin on screen.
@@ -726,19 +1022,19 @@ func collectSnapshot(ctx context.Context, sortBy metrics.SortField, previous met
 	}
 }
 
-// joinPanelRow places two panels side by side with matched heights.
-// Each panel is placed in a fixed-width container so columns stay aligned
-// regardless of content width.
-func joinPanelRow(left, right string, leftW, rightW int) string {
-	lh := strings.Count(left, "\n") + 1
-	rh := strings.Count(right, "\n") + 1
-	h := lh
-	if rh > h {
-		h = rh
+// collectConnections gathers listening ports and active connections in the
+// background. On failure it returns an unavailable result so the previous data
+// is kept by the update loop.
+func collectConnections() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		conns, err := metrics.CollectConnections(ctx)
+		if err != nil {
+			return connectionsMsg(metrics.NetConnections{})
+		}
+		return connectionsMsg(conns)
 	}
-	l := lipgloss.NewStyle().Width(leftW).Height(h).Render(left)
-	r := lipgloss.NewStyle().Width(rightW).Height(h).Render(right)
-	return lipgloss.JoinHorizontal(lipgloss.Top, l, r)
 }
 
 func appendHistory(h []float64, v float64) []float64 {
@@ -776,12 +1072,25 @@ func (m Model) killSelectedProcess(sig killSignal) string {
 
 func (m Model) exportSnapshot() string {
 	basename := fmt.Sprintf("hideTop_%s.json", m.snap.CollectedAt.Format("20060102_150405"))
-	// Write to user's home directory for a predictable location.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
+
+	// Destination: --export-dir / config export_dir, falling back to home.
+	dir := strings.TrimSpace(m.cfg.ExportDir)
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = "."
+		}
+		dir = home
+	} else if strings.HasPrefix(dir, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, strings.TrimPrefix(dir, "~"))
+		}
 	}
-	filename := home + string(os.PathSeparator) + basename
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Sprintf("export error: %v", err)
+	}
+	filename := filepath.Join(dir, basename)
 	data, err := json.MarshalIndent(m.snap, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("export error: %v", err)
