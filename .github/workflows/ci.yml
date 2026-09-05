@@ -21,10 +21,10 @@ jobs:
         go-version: ["1.25"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
 
@@ -40,10 +40,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           # Deliberately newer than the build matrix: golangci-lint is
           # installed with `go install`, and recent releases need a newer Go to
