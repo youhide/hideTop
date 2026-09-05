@@ -28,7 +28,7 @@ func RenderCPUCompact(cpu metrics.CPUStats, width int, history []float64, compac
 	}
 
 	totalLabel := fmt.Sprintf("TOTAL %5.1f%%", cpu.Total)
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render(renderBar(cpu.Total, totalLabel, innerW)))
+	b.WriteString(boldStyle.Render(renderBar(cpu.Total, totalLabel, innerW)))
 	b.WriteByte('\n')
 
 	switch {
@@ -100,9 +100,8 @@ func renderBar(pct float64, label string, maxWidth int) string {
 	}
 	empty := barWidth - filled
 
-	color := BarColor(pct)
-	filledStyle := lipgloss.NewStyle().Foreground(color)
-	emptyStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	filledStyle := levelText[barLevel(pct)]
+	emptyStyle := barEmpty
 
 	return fmt.Sprintf("%s [%s%s]",
 		label,

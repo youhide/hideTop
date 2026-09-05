@@ -11,6 +11,13 @@ import (
 )
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Ctrl+C quits from anywhere. It used to be routed away by the kill
+	// prompt and the overlay handlers, so it did nothing on exactly the
+	// screen (the help overlay) that advertises it as the quit key.
+	if msg.Type == tea.KeyCtrlC {
+		return m.quit()
+	}
+
 	// Handle kill confirmation first
 	if m.confirmKill != 0 {
 		switch msg.String() {
@@ -38,14 +45,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "q", "ctrl+c":
-		m.quitting = true
-		if m.collectCancel != nil {
-			m.collectCancel()
-			m.collectCancel = nil
-		}
-		m.saveSettings()
-		return m, tea.Quit
+	case "q":
+		return m.quit()
 	case "c":
 		if m.sortBy != metrics.SortByCPU {
 			m.sortBy = metrics.SortByCPU
@@ -65,17 +66,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.resolveSelection(m.filteredProcesses())
 		}
 	case "+", "=":
-		m.cfg.RefreshInterval += 250 * time.Millisecond
-		m.intervalChanged = true
-		m.refreshFlash = true
-		return m, tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg { return flashDoneMsg{} })
+		return m.adjustInterval(intervalStep)
 	case "-", "_":
-		if m.cfg.RefreshInterval > 250*time.Millisecond {
-			m.cfg.RefreshInterval -= 250 * time.Millisecond
-			m.intervalChanged = true
-		}
-		m.refreshFlash = true
-		return m, tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg { return flashDoneMsg{} })
+		return m.adjustInterval(-intervalStep)
 	case "j", "down":
 		m.moveSelection(1)
 	case "k", "up":
@@ -207,13 +200,6 @@ func (m Model) overlayMaxScroll() int {
 
 func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
-	case tea.KeyCtrlC:
-		m.quitting = true
-		if m.collectCancel != nil {
-			m.collectCancel()
-			m.collectCancel = nil
-		}
-		return m, tea.Quit
 	case tea.KeyEscape:
 		m.searching = false
 		m.searchQuery = ""
@@ -235,9 +221,52 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveSelection(-1)
 	case tea.KeyDown:
 		m.moveSelection(1)
+	case tea.KeySpace:
+		// Bubble Tea reports a lone space as KeySpace, not KeyRunes, so
+		// searching for "Google Chrome" used to produce "GoogleChrome".
+		m.searchQuery += " "
+		m.resolveSelection(m.filteredProcesses())
 	case tea.KeyRunes:
 		m.searchQuery += string(msg.Runes)
 		m.resolveSelection(m.filteredProcesses())
 	}
 	return m, nil
+}
+
+// intervalStep is how much +/- move the refresh interval.
+const intervalStep = 250 * time.Millisecond
+
+// Refresh interval bounds. The interval is persisted on quit, so an unclamped
+// value survives restarts: "-" used to assume the interval was a multiple of
+// the step, so `--interval 260ms` then "-" produced 10ms, and "+" had no
+// ceiling at all.
+const (
+	minRefreshInterval = 250 * time.Millisecond
+	maxRefreshInterval = 10 * time.Second
+)
+
+// adjustInterval moves the refresh interval by delta, clamped, and flashes the
+// header label.
+func (m Model) adjustInterval(delta time.Duration) (tea.Model, tea.Cmd) {
+	next := min(max(m.cfg.RefreshInterval+delta, minRefreshInterval), maxRefreshInterval)
+	if next != m.cfg.RefreshInterval {
+		m.cfg.RefreshInterval = next
+		m.intervalChanged = true
+	}
+	m.refreshFlash = true
+	return m, tea.Tick(flashDuration, func(time.Time) tea.Msg { return flashDoneMsg{} })
+}
+
+// flashDuration is how long the refresh label stays highlighted after +/-.
+const flashDuration = 300 * time.Millisecond
+
+// quit tears down the in-flight collection, persists settings and exits.
+func (m Model) quit() (tea.Model, tea.Cmd) {
+	m.quitting = true
+	if m.collectCancel != nil {
+		m.collectCancel()
+		m.collectCancel = nil
+	}
+	m.saveSettings()
+	return m, tea.Quit
 }

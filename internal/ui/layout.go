@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -115,4 +116,23 @@ func scaleBytes(bytes float64) (float64, string) {
 	default:
 		return bytes, "B"
 	}
+}
+
+// padTo pads s on the right so it occupies exactly cells terminal columns,
+// truncating first if it is wider.
+//
+// fmt's %-Ns verb counts runes, not display cells. Every call site here first
+// trims to a cell budget with fitPlain and then padded with %-Ns, so a process
+// named "日本語プロセス" (7 runes, 14 cells) survived the trim and then got 13
+// spaces appended — a 27-cell field in a 20-cell column, which wrapped the row
+// and grew the panel by a line.
+func padTo(s string, cells int) string {
+	if cells <= 0 {
+		return ""
+	}
+	s = fitPlain(s, cells)
+	if pad := cells - lipgloss.Width(s); pad > 0 {
+		s += strings.Repeat(" ", pad)
+	}
+	return s
 }

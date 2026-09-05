@@ -81,10 +81,10 @@ func RenderNetworkScrollRows(delta metrics.NetworkDelta, ports []metrics.PortInf
 		for _, j := range activeInterfaceIndexes(delta) {
 			iface := delta.Interfaces[j]
 			if innerW < 34 {
-				body = append(body, SubtleStyle.Render(fmt.Sprintf("  %-6s", fitPlain(iface.Name, 6)))+
+				body = append(body, SubtleStyle.Render("  "+padTo(iface.Name, 6))+
 					fmt.Sprintf(" ↓%s ↑%s", formatBytesCompact(iface.InSec), formatBytesCompact(iface.OutSec)))
 			} else {
-				body = append(body, SubtleStyle.Render(fmt.Sprintf("  %-10s", truncateRunes(iface.Name, 10)))+
+				body = append(body, SubtleStyle.Render("  "+padTo(iface.Name, 10))+
 					fmt.Sprintf("  ▼ %s/s  ▲ %s/s", formatBytes(iface.InSec), formatBytes(iface.OutSec)))
 			}
 		}
@@ -142,11 +142,11 @@ func portRow(p metrics.PortInfo, innerW int) string {
 		if pw < 1 {
 			pw = 1
 		}
-		return fmt.Sprintf("  %5d %-3s %s", p.Port, p.Proto, fitPlain(proc, pw))
+		return fmt.Sprintf("  %5d %s %s", p.Port, padTo(p.Proto, 3), padTo(proc, pw))
 	}
 	pw := innerW - 16
 	if pw < 1 {
 		pw = 1
 	}
-	return fmt.Sprintf("  %-3s %5d  %s", p.Proto, p.Port, fitPlain(proc, pw))
+	return fmt.Sprintf("  %s %5d  %s", padTo(p.Proto, 3), p.Port, padTo(proc, pw))
 }

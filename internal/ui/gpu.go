@@ -56,7 +56,7 @@ func RenderGPUCompact(stats *gpu.Stats, width int, history []float64, compact bo
 
 	// Total utilization bar (always shown, bold like CPU TOTAL)
 	totalLabel := fmt.Sprintf("%-8s %5.1f%%", "TOTAL", stats.Utilization)
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render(renderBar(stats.Utilization, totalLabel, innerW)))
+	b.WriteString(boldStyle.Render(renderBar(stats.Utilization, totalLabel, innerW)))
 	b.WriteByte('\n')
 
 	// Per-engine bars when available (Renderer, Tiler, etc.)
@@ -78,9 +78,8 @@ func RenderGPUCompact(stats *gpu.Stats, width int, history []float64, compact bo
 
 	// GPU temperature (shown only if collected)
 	if !compact && stats.Temperature > 0 {
-		tempColor := TempColor(stats.Temperature)
 		b.WriteString(fmt.Sprintf("  temp: %s",
-			lipgloss.NewStyle().Foreground(tempColor).Render(fmt.Sprintf("%.0f°C", stats.Temperature)),
+			levelText[tempLevel(stats.Temperature)].Render(fmt.Sprintf("%.0f°C", stats.Temperature)),
 		))
 		b.WriteByte('\n')
 	}

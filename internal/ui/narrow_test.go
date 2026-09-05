@@ -112,3 +112,53 @@ func TestOverlaysFitNarrowWidth(t *testing.T) {
 		Cmdline: "this-command-line-is-deliberately-long-and-needs-to-wrap",
 	}, width, 20), width)
 }
+
+// TestWideCharProcessNamesDoNotOverflow pins the fix for %-Ns padding by runes
+// while fitPlain trims by display cells: a CJK process name survived the trim
+// and then had a full rune-count of spaces appended, overflowing the column,
+// wrapping the row and growing the panel by a line.
+func TestWideCharProcessNamesDoNotOverflow(t *testing.T) {
+	procs := []metrics.ProcessInfo{
+		{PID: 1, Name: "日本語プロセス名前テスト", User: "ユーザー", State: "S", CPUPercent: 1},
+		{PID: 2, Name: "ascii-process", User: "youri", State: "S", CPUPercent: 2},
+		{PID: 3, Name: "混合 mixed 名前", User: "u", State: "R", CPUPercent: 3},
+	}
+	// The symptom is height, not width: an over-wide row is wrapped by
+	// lipgloss, which adds a line to the panel and pushes the layout down.
+	for _, w := range []int{30, 50, 80, 120} {
+		out := RenderProcesses(procs, ProcessViewState{TotalProcs: len(procs)}, w, len(procs))
+		want := ProcessPanelChrome + len(procs)
+		if got := strings.Count(out, "\n") + 1; got != want {
+			t.Errorf("width %d: panel is %d lines, want %d (a row wrapped)\n%s", w, got, want, out)
+		}
+		for i, line := range strings.Split(out, "\n") {
+			if got := lipgloss.Width(line); got > w {
+				t.Errorf("width %d: line %d is %d cells wide:\n%q", w, i, got, line)
+			}
+		}
+	}
+}
+
+// TestWideCharSensorLabelsDoNotOverflow is the same guard for the temperature
+// panel, which pads sensor labels the same way.
+func TestWideCharSensorLabelsDoNotOverflow(t *testing.T) {
+	temp := metrics.TemperatureStats{Available: true, Sensors: []metrics.SensorReading{
+		{Label: "温度センサー一番", Temperature: 40},
+		{Label: "PMU tdie2", Temperature: 41},
+	}}
+	for _, w := range []int{30, 50, 80} {
+		out, _ := RenderTemperatureScrollRows(temp, w, 0, 4)
+		plain, _ := RenderTemperatureScrollRows(metrics.TemperatureStats{Available: true,
+			Sensors: []metrics.SensorReading{{Label: "aaaaaaaa", Temperature: 40},
+				{Label: "PMU tdie2", Temperature: 41}}}, w, 0, 4)
+		if got, want := strings.Count(out, "\n"), strings.Count(plain, "\n"); got != want {
+			t.Errorf("width %d: wide-char labels made the panel %d lines instead of %d\n%s",
+				w, got+1, want+1, out)
+		}
+		for i, line := range strings.Split(out, "\n") {
+			if got := lipgloss.Width(line); got > w {
+				t.Errorf("width %d: line %d is %d cells wide:\n%q", w, i, got, line)
+			}
+		}
+	}
+}

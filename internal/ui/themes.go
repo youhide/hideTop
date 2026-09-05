@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -19,6 +20,10 @@ type Theme struct {
 	Border     lipgloss.Color
 	Header     lipgloss.Color
 	SelectedBg lipgloss.Color
+	// SelectedFg is the text color on the selected row. The row used to
+	// hardcode #FFFFFF, which on the light theme's pale SelectedBg gave a
+	// contrast ratio around 1.15:1 — effectively invisible.
+	SelectedFg lipgloss.Color
 }
 
 var themes = map[string]Theme{
@@ -32,6 +37,7 @@ var themes = map[string]Theme{
 		Border:     lipgloss.Color("#3F3F46"),
 		Header:     lipgloss.Color("#D4D4D8"),
 		SelectedBg: lipgloss.Color("#3B3B5C"),
+		SelectedFg: lipgloss.Color("#FFFFFF"),
 	},
 	"light": {
 		Name:       "light",
@@ -43,6 +49,7 @@ var themes = map[string]Theme{
 		Border:     lipgloss.Color("#D1D5DB"),
 		Header:     lipgloss.Color("#374151"),
 		SelectedBg: lipgloss.Color("#E0E7FF"),
+		SelectedFg: lipgloss.Color("#111827"),
 	},
 	"dracula": {
 		Name:       "dracula",
@@ -54,6 +61,7 @@ var themes = map[string]Theme{
 		Border:     lipgloss.Color("#44475A"),
 		Header:     lipgloss.Color("#F8F8F2"),
 		SelectedBg: lipgloss.Color("#44475A"),
+		SelectedFg: lipgloss.Color("#F8F8F2"),
 	},
 	"nord": {
 		Name:       "nord",
@@ -65,6 +73,7 @@ var themes = map[string]Theme{
 		Border:     lipgloss.Color("#3B4252"),
 		Header:     lipgloss.Color("#ECEFF4"),
 		SelectedBg: lipgloss.Color("#3B4252"),
+		SelectedFg: lipgloss.Color("#ECEFF4"),
 	},
 	"monokai": {
 		Name:       "monokai",
@@ -76,6 +85,7 @@ var themes = map[string]Theme{
 		Border:     lipgloss.Color("#49483E"),
 		Header:     lipgloss.Color("#F8F8F2"),
 		SelectedBg: lipgloss.Color("#49483E"),
+		SelectedFg: lipgloss.Color("#F8F8F2"),
 	},
 }
 
@@ -85,46 +95,22 @@ func AvailableThemes() []string {
 	for name := range themes {
 		names = append(names, name)
 	}
+	slices.Sort(names) // map iteration order made the list random per run
 	return names
 }
 
-// ApplyTheme switches the global color variables to use the given theme.
-// Falls back to "dark" if the theme name is not recognized.
+// ApplyTheme switches the palette to the named theme, falling back to "dark".
+//
+// It mutates package-level styles, so it must be called before the program
+// starts rendering (main does, before tea.Run). If a runtime theme-switch key
+// is ever added, the theme has to move into the model and be threaded through
+// the render functions instead.
 func ApplyTheme(name string) {
 	t, ok := themes[name]
 	if !ok {
-		avail := strings.Join(AvailableThemes(), ", ")
-		fmt.Fprintf(os.Stderr, "hideTop: unknown theme %q, falling back to \"dark\" (available: %s)\n", name, avail)
+		fmt.Fprintf(os.Stderr, "hideTop: unknown theme %q, falling back to \"dark\" (available: %s)\n",
+			name, strings.Join(AvailableThemes(), ", "))
 		t = themes["dark"]
 	}
-
-	ColorTitle = t.Title
-	ColorGreen = t.Green
-	ColorYellow = t.Yellow
-	ColorRed = t.Red
-	ColorSubtle = t.Subtle
-	ColorBorder = t.Border
-	ColorHeader = t.Header
-	ColorSelectedBg = t.SelectedBg
-
-	// Rebuild derived styles
-	TitleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorTitle)
-
-	PanelStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder).
-		Padding(0, 1)
-
-	HeaderStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorHeader)
-
-	SubtleStyle = lipgloss.NewStyle().
-		Foreground(ColorSubtle)
-
-	GreenStyle = lipgloss.NewStyle().Foreground(ColorGreen)
-	YellowStyle = lipgloss.NewStyle().Foreground(ColorYellow)
-	RedStyle = lipgloss.NewStyle().Foreground(ColorRed)
+	rebuildStyles(t)
 }

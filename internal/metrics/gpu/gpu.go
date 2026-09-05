@@ -148,6 +148,10 @@ func parseCoreCount(data []byte) (int, bool) {
 	return v, true
 }
 
+// freqValueRe extracts the numeric value from an ioreg "key = value" line.
+// Hoisted to package level; it used to be compiled inside a nested loop.
+var freqValueRe = regexp.MustCompile(`=\s*(\d+)`)
+
 var freqPatterns = []string{
 	"gpu-core-clock",
 	"gpuCoreClockMHz",
@@ -164,8 +168,7 @@ func parseFrequency(data []byte) (int, bool) {
 			if !strings.Contains(lower, strings.ToLower(pat)) {
 				continue
 			}
-			re := regexp.MustCompile(`=\s*(\d+)`)
-			m := re.FindStringSubmatch(s)
+			m := freqValueRe.FindStringSubmatch(s)
 			if m == nil {
 				continue
 			}
@@ -173,8 +176,15 @@ func parseFrequency(data []byte) (int, bool) {
 			if err != nil {
 				continue
 			}
-			if v > 100000 {
-				v = v / 1000000
+			// ioreg reports the clock in Hz, kHz or MHz depending on the
+			// key. Scale down to MHz by magnitude rather than with a single
+			// threshold: the old `if v > 100000 { v /= 1000000 }` turned any
+			// kHz value between 100 MHz and 1 GHz into 0.
+			switch {
+			case v >= 1_000_000: // Hz
+				v /= 1_000_000
+			case v >= 10_000: // kHz
+				v /= 1_000
 			}
 			return v, true
 		}

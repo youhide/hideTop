@@ -24,18 +24,6 @@ func TemperatureTwoColumn(width int) bool {
 	return contentWidth(width) >= 44
 }
 
-// TempColor returns a color based on temperature thresholds.
-func TempColor(temp float64) lipgloss.Color {
-	switch {
-	case temp > 80:
-		return ColorRed
-	case temp > 60:
-		return ColorYellow
-	default:
-		return ColorGreen
-	}
-}
-
 // TemperatureScrollMax returns the maximum scroll offset for the temperature
 // panel (0 when all sensors fit on screen).
 func TemperatureScrollMax(temp metrics.TemperatureStats) int {
@@ -83,29 +71,25 @@ func RenderTemperatureScrollRows(temp metrics.TemperatureStats, width, scroll, r
 	// Title line carries an inline CPU/GPU summary.
 	head := HeaderStyle.Render(fitPlain("Temperature", innerW))
 	if innerW >= 28 && temp.CPUTemp > 0 {
-		c := TempColor(temp.CPUTemp)
 		head += fmt.Sprintf("  CPU %s",
-			lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%.0f°C", temp.CPUTemp)))
+			levelText[tempLevel(temp.CPUTemp)].Render(fmt.Sprintf("%.0f°C", temp.CPUTemp)))
 	}
 	if innerW >= 40 && temp.GPUTemp > 0 {
-		c := TempColor(temp.GPUTemp)
 		head += fmt.Sprintf("  GPU %s",
-			lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%.0f°C", temp.GPUTemp)))
+			levelText[tempLevel(temp.GPUTemp)].Render(fmt.Sprintf("%.0f°C", temp.GPUTemp)))
 	}
 
 	var b strings.Builder
 
 	if !TemperatureTwoColumn(width) {
 		for _, s := range window {
-			c := TempColor(s.Temperature)
 			labelW := innerW - 10
 			if labelW < 1 {
 				labelW = 1
 			}
-			line := fmt.Sprintf("  %-*s %s",
-				labelW,
-				fitPlain(s.Label, labelW),
-				lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%4.0f°C", s.Temperature)))
+			line := fmt.Sprintf("  %s %s",
+				padTo(s.Label, labelW),
+				levelText[tempLevel(s.Temperature)].Render(fmt.Sprintf("%4.0f°C", s.Temperature)))
 			b.WriteString(line)
 			b.WriteByte('\n')
 		}
@@ -113,17 +97,15 @@ func RenderTemperatureScrollRows(temp metrics.TemperatureStats, width, scroll, r
 		colW := (innerW - 2) / 2
 		for i := 0; i < len(window); i += 2 {
 			s := window[i]
-			c := TempColor(s.Temperature)
-			left := fmt.Sprintf("  %-10s %s",
-				truncateSensorLabel(s.Label, 10),
-				lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%5.1f°C", s.Temperature)))
+			left := fmt.Sprintf("  %s %s",
+				padTo(s.Label, 10),
+				levelText[tempLevel(s.Temperature)].Render(fmt.Sprintf("%5.1f°C", s.Temperature)))
 
 			if i+1 < len(window) {
 				s2 := window[i+1]
-				c2 := TempColor(s2.Temperature)
-				right := fmt.Sprintf("  %-10s %s",
-					truncateSensorLabel(s2.Label, 10),
-					lipgloss.NewStyle().Foreground(c2).Render(fmt.Sprintf("%5.1f°C", s2.Temperature)))
+				right := fmt.Sprintf("  %s %s",
+					padTo(s2.Label, 10),
+					levelText[tempLevel(s2.Temperature)].Render(fmt.Sprintf("%5.1f°C", s2.Temperature)))
 				b.WriteString(left)
 				// Pad left to column width, then add right.
 				pad := colW - lipgloss.Width(left)
