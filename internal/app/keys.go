@@ -2,12 +2,10 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/youhide/hideTop/internal/config"
 	"github.com/youhide/hideTop/internal/metrics"
 	"github.com/youhide/hideTop/internal/ui"
 )
@@ -46,11 +44,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collectCancel()
 			m.collectCancel = nil
 		}
-		if m.intervalChanged {
-			if err := config.SaveInterval(m.cfg.RefreshInterval); err != nil {
-				fmt.Fprintf(os.Stderr, "hideTop: failed to save refresh interval: %v\n", err)
-			}
-		}
+		m.saveSettings()
 		return m, tea.Quit
 	case "c":
 		if m.sortBy != metrics.SortByCPU {
@@ -96,6 +90,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveToEnd()
 	case " ":
 		m.paused = !m.paused
+	case "1", "2", "3", "4", "5", "6":
+		m.togglePanel(panelOrder[int(msg.String()[0]-'1')])
 	case "z":
 		m.tempScroll = 0
 		m.netScroll = 0

@@ -42,6 +42,11 @@ type Model struct {
 	cfg             config.Config
 	version         string
 	intervalChanged bool // user adjusted the refresh interval this session
+	panelsChanged   bool // user toggled panel visibility this session
+
+	// Metric panels the user has hidden with the number keys, keyed by
+	// panelName. Persisted to the config file on quit.
+	hiddenPanels map[string]bool
 
 	// Collected data and derived history.
 	snap       metrics.Snapshot
@@ -54,11 +59,12 @@ type Model struct {
 
 	// Collection lifecycle. collecting is true while a snapshot command is in
 	// flight; collectCancel bounds it and is cleared when the result arrives.
-	collecting      bool
-	collectCancel   context.CancelFunc
-	collectingConns bool
-	connsSampleAt   time.Time
-	paused          bool // metrics auto-refresh paused by the user
+	collecting       bool
+	collectStartedAt time.Time
+	collectCancel    context.CancelFunc
+	collectingConns  bool
+	connsSampleAt    time.Time
+	paused           bool // metrics auto-refresh paused by the user
 
 	// Terminal geometry.
 	width  int
@@ -87,16 +93,28 @@ type Model struct {
 	pidToKill     int32      // PID captured when the kill prompt was shown
 	killMsg       string     // status message after kill attempt
 	quitting      bool
+	saveErr       error // config write failure, reported after the TUI exits
 }
 
 func New(cfg config.Config) Model {
+	hidden := make(map[string]bool, len(cfg.HiddenPanels))
+	for _, n := range cfg.HiddenPanels {
+		hidden[n] = true
+	}
 	return Model{
-		cfg:    cfg,
-		sortBy: metrics.SortByCPU,
+		cfg:          cfg,
+		sortBy:       metrics.SortByCPU,
+		hiddenPanels: hidden,
 	}
 }
 
 // SetVersion sets the version string for display in the help overlay.
+// SaveError returns any config write failure from the session. main reports it
+// after the alt-screen is torn down, where the user can actually see it.
+func (m Model) SaveError() error {
+	return m.saveErr
+}
+
 func (m *Model) SetVersion(v string) {
 	m.version = v
 }
@@ -124,6 +142,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ctx, cancel := context.WithTimeout(context.Background(), m.collectionTimeout())
 			m.collectCancel = cancel
 			m.collecting = true
+			m.collectStartedAt = time.Now()
 			cmds = append(cmds, collectSnapshot(ctx, m.sortBy, m.snap, m.processSampleEvery(), m.cfg.ProcLimit, metrics.CollectOptions{
 				SkipGPU:  m.cfg.NoGPU,
 				SkipTemp: m.cfg.NoTemp,

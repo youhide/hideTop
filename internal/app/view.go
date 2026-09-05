@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -35,55 +36,7 @@ func (m Model) View() string {
 		return ui.RenderNetworkOverlay(m.conns, m.collectingConns, w, h, m.overlayScroll)
 	}
 
-	// Header
-	batteryLabel := ui.RenderBattery(m.snap.Battery)
-	refreshLabel := fmt.Sprintf("  refresh %s", m.cfg.RefreshInterval)
-	if w < 40 {
-		refreshLabel = fmt.Sprintf(" %s", m.cfg.RefreshInterval)
-	}
-	var header string
-	if m.refreshFlash {
-		header = ui.TitleStyle.Render("hideTop") +
-			lipgloss.NewStyle().Bold(true).Foreground(ui.ColorTitle).Render(refreshLabel)
-	} else {
-		header = ui.TitleStyle.Render("hideTop") +
-			ui.SubtleStyle.Render(refreshLabel)
-	}
-	appendHeader := func(part string) {
-		if lipgloss.Width(header)+lipgloss.Width(part) <= w {
-			header += part
-		}
-	}
-	appendHeaderMessage := func(msg string) {
-		remaining := w - lipgloss.Width(header) - 2
-		if remaining <= 0 {
-			return
-		}
-		header += "  " + lipgloss.NewStyle().Bold(true).Foreground(ui.ColorRed).Render(fitRunes(msg, remaining))
-	}
-	appendHeaderIfRoom := func(msg string, color lipgloss.Color) {
-		part := "  " + lipgloss.NewStyle().Bold(true).Foreground(color).Render(msg)
-		appendHeader(part)
-	}
-	if m.collecting {
-		appendHeader(ui.SubtleStyle.Render("  collecting"))
-	}
-	if m.paused {
-		appendHeaderIfRoom("paused", ui.ColorYellow)
-	}
-	if stale := m.snap.Status.StaleMetrics(); len(stale) > 0 {
-		label := "stale:" + strings.Join(stale, ",")
-		if w < 40 {
-			label = "stale"
-		}
-		appendHeaderIfRoom(label, ui.ColorYellow)
-	}
-	if batteryLabel != "" {
-		appendHeader("  " + batteryLabel)
-	}
-	if m.killMsg != "" {
-		appendHeaderMessage(m.killMsg)
-	}
+	header := m.renderHeader(w)
 
 	// Decide layout: two-column if wide enough
 	twoCol := w >= 110
@@ -114,18 +67,7 @@ func (m Model) View() string {
 		TotalProcs:  len(m.snap.Processes),
 	}
 
-	// Count lines used by fixed panels to size the process panel.
-	usedLines := strings.Count(header, "\n") + 1
-	usedLines += strings.Count(metricsSection, "\n") + 1
-	usedLines += 1 // help bar
-
-	emptyProc := ui.RenderProcesses(nil, procState, w, 0)
-	procOverhead := strings.Count(emptyProc, "\n") + 1
-
-	procRows := h - usedLines - procOverhead
-	if procRows < 1 {
-		procRows = 1
-	}
+	procRows, _ := m.procViewport()
 	procPanel := ui.RenderProcesses(procs, procState, w, procRows)
 	helpBar := ui.RenderHelp(w)
 
@@ -159,4 +101,77 @@ func fitRunes(s string, maxRunes int) string {
 		return string(r[:maxRunes])
 	}
 	return string(r[:maxRunes-3]) + "..."
+}
+
+// collectSlowThreshold is how long a collection must be in flight before the
+// header advertises it. Collections normally take 200-400ms (CollectCPU alone
+// samples for 200ms), so showing the label immediately made it blink on every
+// tick and shifted every chip to its right. Above this threshold the label
+// stays put, which is when it actually tells the user something.
+const collectSlowThreshold = 600 * time.Millisecond
+
+// formatInterval renders the refresh interval at a stable width so that
+// changing it with +/- does not shift the chips that follow.
+func formatInterval(d time.Duration) string {
+	return fmt.Sprintf("%-6s", d.String())
+}
+
+// renderHeader builds the top status line. Every segment is width-stable and
+// appended only if it fits, so the line neither wraps nor reflows between
+// frames.
+func (m Model) renderHeader(w int) string {
+	title := ui.TitleStyle.Render(fitRunes("hideTop", w))
+
+	refreshLabel := "  refresh " + formatInterval(m.cfg.RefreshInterval)
+	if w < 40 {
+		refreshLabel = " " + formatInterval(m.cfg.RefreshInterval)
+	}
+	style := ui.SubtleStyle
+	if m.refreshFlash {
+		style = ui.HeaderStyle
+	}
+	header := title
+	if lipgloss.Width(header)+lipgloss.Width(refreshLabel) <= w {
+		header += style.Render(refreshLabel)
+	}
+
+	appendHeader := func(part string) {
+		if lipgloss.Width(header)+lipgloss.Width(part) <= w {
+			header += part
+		}
+	}
+	appendHeaderIfRoom := func(msg string, color lipgloss.Color) {
+		appendHeader("  " + lipgloss.NewStyle().Bold(true).Foreground(color).Render(msg))
+	}
+
+	if m.collectionIsSlow() {
+		appendHeader(ui.SubtleStyle.Render("  collecting"))
+	}
+	if m.paused {
+		appendHeaderIfRoom("paused", ui.ColorYellow)
+	}
+	if stale := m.snap.Status.StaleMetrics(); len(stale) > 0 {
+		label := "stale:" + strings.Join(stale, ",")
+		if w < 40 {
+			label = "stale"
+		}
+		appendHeaderIfRoom(label, ui.ColorYellow)
+	}
+	if batteryLabel := ui.RenderBattery(m.snap.Battery); batteryLabel != "" {
+		appendHeader("  " + batteryLabel)
+	}
+	if m.killMsg != "" {
+		if remaining := w - lipgloss.Width(header) - 2; remaining > 0 {
+			header += "  " + lipgloss.NewStyle().Bold(true).Foreground(ui.ColorRed).
+				Render(fitRunes(m.killMsg, remaining))
+		}
+	}
+	return header
+}
+
+// collectionIsSlow reports whether the in-flight collection has been running
+// long enough to be worth telling the user about.
+func (m Model) collectionIsSlow() bool {
+	return m.collecting && !m.collectStartedAt.IsZero() &&
+		time.Since(m.collectStartedAt) > collectSlowThreshold
 }

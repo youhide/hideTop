@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/youhide/hideTop/internal/config"
 	"strings"
 )
 
@@ -48,4 +50,20 @@ func (m Model) exportSnapshot() string {
 		return fmt.Sprintf("export error: %v", err)
 	}
 	return fmt.Sprintf("exported to %s", filename)
+}
+
+// saveSettings persists session changes the user made with the keyboard.
+// Errors are recorded on the model rather than printed: stderr is invisible
+// while the alt-screen is still up, so a message written here would be lost.
+func (m *Model) saveSettings() {
+	if m.intervalChanged {
+		if err := config.SaveInterval(m.cfg.RefreshInterval); err != nil {
+			m.saveErr = err
+		}
+	}
+	if m.panelsChanged {
+		if err := config.SaveHiddenPanels(m.hiddenPanelList()); err != nil {
+			m.saveErr = err
+		}
+	}
 }

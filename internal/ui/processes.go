@@ -62,36 +62,46 @@ func ProcessSortAtX(width, x int) (metrics.SortField, bool) {
 	return 0, false
 }
 
+// Process panel chrome. RenderProcesses always emits these lines regardless of
+// state and width: top border, title, column header, separator, a trailing
+// blank content line, and the bottom border. Pinned by
+// TestProcessPanelChromeMatchesRender.
+const (
+	// ProcessPanelChrome is every line the panel uses that is not a process row.
+	ProcessPanelChrome = 5
+	// ProcessPanelHeaderRows is how many of those sit above the first row.
+	ProcessPanelHeaderRows = 4
+)
+
 func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width, maxRows int) string {
 	var b strings.Builder
 	innerW := contentWidth(width)
 	compact := innerW < 68
 
 	// Header with optional search indicator
-	b.WriteString(HeaderStyle.Render("Processes"))
+	head := HeaderStyle.Render("Processes")
 	if len(procs) > 0 || state.TotalProcs > 0 {
 		shown := len(procs)
 		total := state.TotalProcs
 		if total > 0 && total != shown {
-			b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %d/%d", shown, total)))
+			head += SubtleStyle.Render(fmt.Sprintf("  %d/%d", shown, total))
 		} else {
-			b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %d", shown)))
+			head += SubtleStyle.Render(fmt.Sprintf("  %d", shown))
 		}
 	}
 	if state.TreeView {
-		b.WriteString(SubtleStyle.Render("  [tree]"))
+		head += SubtleStyle.Render("  [tree]")
 	}
 	if state.HideSystem {
-		b.WriteString(SubtleStyle.Render("  [user]"))
+		head += SubtleStyle.Render("  [user]")
 	}
 	if state.SearchQuery != "" || state.Searching {
 		cursor := ""
 		if state.Searching {
 			cursor = "█"
 		}
-		b.WriteString(SubtleStyle.Render("  /" + state.SearchQuery + cursor))
+		head += SubtleStyle.Render("  /" + state.SearchQuery + cursor)
 	}
-	b.WriteByte('\n')
 
 	if compact {
 		b.WriteString(renderCompactProcessHeader(innerW))
@@ -157,7 +167,7 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 		b.WriteByte('\n')
 	}
 
-	return PanelStyle.Width(panelWidth(width)).Render(b.String())
+	return renderPanel(head, "", b.String(), width)
 }
 
 func renderCompactProcessHeader(width int) string {

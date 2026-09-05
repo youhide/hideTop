@@ -1,8 +1,6 @@
 package app
 
 import (
-	"strings"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/youhide/hideTop/internal/ui"
@@ -70,13 +68,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if h == 0 {
 			h = 24
 		}
-		usedLines := m.computeUsedLines()
-		emptyProc := ui.RenderProcesses(nil, ui.ProcessViewState{}, m.width, 0)
-		procOverhead := strings.Count(emptyProc, "\n") + 1
-		maxRows := h - usedLines - procOverhead
-		if maxRows < 3 {
-			maxRows = 3
-		}
+		maxRows, _ := m.procViewport()
 		viewStart := 0
 		if maxRows > 0 && selectedIdx >= maxRows {
 			viewStart = selectedIdx - maxRows + 1

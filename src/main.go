@@ -43,8 +43,14 @@ func main() {
 		tea.WithMouseCellMotion(),
 	)
 
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "hideTop: %v\n", err)
 		os.Exit(1)
+	}
+	// Reported here rather than inside Update: writing to stderr while the
+	// alt-screen is still up paints into a buffer the user never sees.
+	if fm, ok := final.(app.Model); ok && fm.SaveError() != nil {
+		fmt.Fprintf(os.Stderr, "hideTop: failed to save settings: %v\n", fm.SaveError())
 	}
 }

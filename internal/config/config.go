@@ -20,6 +20,7 @@ type Config struct {
 	FilterUsers     []string
 	ProcLimit       int
 	ExportDir       string
+	HiddenPanels    []string
 }
 
 // DefaultFilterUsers is used when no custom filter is configured.
@@ -27,15 +28,16 @@ var DefaultFilterUsers = []string{"root", "_windowserver", "nobody"}
 
 // fileConfig matches the JSON config file format.
 type fileConfig struct {
-	Interval    string   `json:"interval"`
-	Theme       string   `json:"theme"`
-	NoGPU       bool     `json:"no_gpu"`
-	NoTemp      bool     `json:"no_temp"`
-	NoPorts     bool     `json:"no_ports"`
-	Debug       bool     `json:"debug"`
-	FilterUsers []string `json:"filter_users"`
-	ProcLimit   int      `json:"proc_limit"`
-	ExportDir   string   `json:"export_dir"`
+	Interval     string   `json:"interval"`
+	Theme        string   `json:"theme"`
+	NoGPU        bool     `json:"no_gpu"`
+	NoTemp       bool     `json:"no_temp"`
+	NoPorts      bool     `json:"no_ports"`
+	Debug        bool     `json:"debug"`
+	FilterUsers  []string `json:"filter_users"`
+	ProcLimit    int      `json:"proc_limit"`
+	ExportDir    string   `json:"export_dir"`
+	HiddenPanels []string `json:"hidden_panels"`
 }
 
 func Parse() Config {
@@ -109,6 +111,10 @@ func parse(fs *flag.FlagSet, args []string, loadFile func() *fileConfig) Config 
 		cfg.FilterUsers = DefaultFilterUsers
 	}
 
+	if fc != nil && len(fc.HiddenPanels) > 0 {
+		cfg.HiddenPanels = fc.HiddenPanels
+	}
+
 	// Apply proc_limit from config file if not set via CLI
 	if fc != nil && !setFlags["proc-limit"] && fc.ProcLimit > 0 {
 		cfg.ProcLimit = fc.ProcLimit
@@ -155,10 +161,20 @@ func configPath() (string, error) {
 	return filepath.Join(home, ".config", "hideTop", "config.json"), nil
 }
 
-// SaveInterval persists the refresh interval to the config file, preserving
-// any other settings already present. Existing config is merged so unrelated
-// fields are not lost.
+// SaveInterval persists the refresh interval to the config file.
 func SaveInterval(d time.Duration) error {
+	return save(func(fc *fileConfig) { fc.Interval = d.String() })
+}
+
+// SaveHiddenPanels persists which metric panels the user has hidden. A nil or
+// empty slice clears the setting.
+func SaveHiddenPanels(names []string) error {
+	return save(func(fc *fileConfig) { fc.HiddenPanels = names })
+}
+
+// save applies mutate to the existing config file contents and writes it back,
+// so unrelated settings are preserved.
+func save(mutate func(*fileConfig)) error {
 	path, err := configPath()
 	if err != nil {
 		return err
@@ -168,7 +184,7 @@ func SaveInterval(d time.Duration) error {
 	if existing := loadConfigFile(); existing != nil {
 		fc = *existing
 	}
-	fc.Interval = d.String()
+	mutate(&fc)
 
 	data, err := json.MarshalIndent(fc, "", "  ")
 	if err != nil {

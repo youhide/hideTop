@@ -15,8 +15,7 @@ func RenderDisk(delta metrics.DiskDelta, disk metrics.DiskStats, width int) stri
 
 	var b strings.Builder
 	innerW := contentWidth(width)
-	b.WriteString(HeaderStyle.Render("Disk"))
-	b.WriteByte('\n')
+	head := HeaderStyle.Render("Disk")
 
 	// I/O throughput
 	if delta.Available {
@@ -44,5 +43,5 @@ func RenderDisk(delta metrics.DiskDelta, disk metrics.DiskStats, width int) stri
 		b.WriteByte('\n')
 	}
 
-	return PanelStyle.Width(panelWidth(width)).Render(b.String())
+	return renderPanel(head, "", b.String(), width)
 }

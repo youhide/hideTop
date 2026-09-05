@@ -7,8 +7,13 @@ import (
 	"github.com/youhide/hideTop/internal/metrics"
 )
 
-// netVisibleRows is how many body rows (interfaces + ports) are shown at once.
-const netVisibleRows = 4
+// Network panel sizing. Like the temperature panel, the visible row count
+// adapts to the terminal height instead of being fixed.
+const (
+	netVisibleRows = 4 // default when the caller does not constrain height
+	NetMinRows     = 4
+	NetMaxRows     = 16
+)
 
 // activeInterfaceIndexes returns the indexes of interfaces with non-zero
 // traffic, in original order.
@@ -38,11 +43,12 @@ func networkBodyLen(delta metrics.NetworkDelta, ports []metrics.PortInfo) int {
 
 // NetworkScrollMax returns the maximum scroll offset for the network panel.
 func NetworkScrollMax(delta metrics.NetworkDelta, ports []metrics.PortInfo) int {
-	m := networkBodyLen(delta, ports) - netVisibleRows
-	if m < 0 {
-		return 0
-	}
-	return m
+	return NetworkScrollMaxRows(delta, ports, netVisibleRows)
+}
+
+// NetworkScrollMaxRows is NetworkScrollMax for a given visible row count.
+func NetworkScrollMaxRows(delta metrics.NetworkDelta, ports []metrics.PortInfo, rows int) int {
+	return max(0, networkBodyLen(delta, ports)-rows)
 }
 
 // RenderNetwork renders the network panel. Returns empty if no data.
@@ -55,9 +61,18 @@ func RenderNetwork(delta metrics.NetworkDelta, width int) string {
 // scrollable body of active interfaces and listening ports. Returns the panel
 // and the clamped maximum scroll offset.
 func RenderNetworkScroll(delta metrics.NetworkDelta, ports []metrics.PortInfo, width, scroll int) (string, int) {
+	return RenderNetworkScrollRows(delta, ports, width, scroll, netVisibleRows)
+}
+
+// RenderNetworkScrollRows renders the network panel with at most rows body
+// rows. The body is always padded to exactly rows lines so that interfaces
+// going idle (and dropping out of the list) never change the panel height and
+// shift everything below it.
+func RenderNetworkScrollRows(delta metrics.NetworkDelta, ports []metrics.PortInfo, width, scroll, rows int) (string, int) {
 	if !delta.Available && len(ports) == 0 {
 		return "", 0
 	}
+	rows = min(max(rows, NetMinRows), NetMaxRows)
 	innerW := contentWidth(width)
 
 	// Build the scrollable body: active interfaces, then listening ports.
@@ -69,7 +84,7 @@ func RenderNetworkScroll(delta metrics.NetworkDelta, ports []metrics.PortInfo, w
 				body = append(body, SubtleStyle.Render(fmt.Sprintf("  %-6s", fitPlain(iface.Name, 6)))+
 					fmt.Sprintf(" ↓%s ↑%s", formatBytesCompact(iface.InSec), formatBytesCompact(iface.OutSec)))
 			} else {
-				body = append(body, SubtleStyle.Render(fmt.Sprintf("  %-10s", truncateStr(iface.Name, 10)))+
+				body = append(body, SubtleStyle.Render(fmt.Sprintf("  %-10s", truncateRunes(iface.Name, 10)))+
 					fmt.Sprintf("  ▼ %s/s  ▲ %s/s", formatBytes(iface.InSec), formatBytes(iface.OutSec)))
 			}
 		}
@@ -81,26 +96,12 @@ func RenderNetworkScroll(delta metrics.NetworkDelta, ports []metrics.PortInfo, w
 		}
 	}
 
-	maxScroll := len(body) - netVisibleRows
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if scroll < 0 {
-		scroll = 0
-	}
-	if scroll > maxScroll {
-		scroll = maxScroll
-	}
-	end := scroll + netVisibleRows
-	if end > len(body) {
-		end = len(body)
-	}
+	maxScroll := max(0, len(body)-rows)
+	scroll = min(max(scroll, 0), maxScroll)
+	end := min(scroll+rows, len(body))
 	window := body[scroll:end]
 
 	var b strings.Builder
-	b.WriteString(HeaderStyle.Render("Network"))
-	b.WriteByte('\n')
-
 	if delta.Available {
 		if innerW < 34 {
 			b.WriteString(fmt.Sprintf("  ↓ %s/s  ↑ %s/s",
@@ -120,15 +121,14 @@ func RenderNetworkScroll(delta metrics.NetworkDelta, ports []metrics.PortInfo, w
 		b.WriteString(row)
 		b.WriteByte('\n')
 	}
-
-	// Constant-height scroll status so scrolling never changes the panel height.
-	if maxScroll > 0 {
-		status := fmt.Sprintf("  %d-%d of %d  (scroll)", scroll+1, end, len(body))
-		b.WriteString(SubtleStyle.Render(fitPlain(status, innerW)))
+	// Pad to a constant number of body rows. Without this, an interface going
+	// idle removes a line and everything below the panel jumps up.
+	for i := len(window); i < rows; i++ {
 		b.WriteByte('\n')
 	}
 
-	return PanelStyle.Width(panelWidth(width)).Render(b.String()), maxScroll
+	return renderPanel(HeaderStyle.Render("Network"), scrollStatus(scroll+1, end, len(body), maxScroll > 0),
+		b.String(), width), maxScroll
 }
 
 // portRow renders one listening-port line for the network panel.
@@ -149,23 +149,4 @@ func portRow(p metrics.PortInfo, innerW int) string {
 		pw = 1
 	}
 	return fmt.Sprintf("  %-3s %5d  %s", p.Proto, p.Port, fitPlain(proc, pw))
-}
-
-// formatBytes formats bytes into human-readable format.
-func formatBytes(bytes float64) string {
-	switch {
-	case bytes >= 1<<30:
-		return fmt.Sprintf("%.1f GiB", bytes/(1<<30))
-	case bytes >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", bytes/(1<<20))
-	case bytes >= 1<<10:
-		return fmt.Sprintf("%.1f KiB", bytes/(1<<10))
-	default:
-		return fmt.Sprintf("%.0f B", bytes)
-	}
-}
-
-// truncateStr truncates a string to maxLen runes, preserving valid UTF-8.
-func truncateStr(s string, maxLen int) string {
-	return truncateRunes(s, maxLen)
 }
