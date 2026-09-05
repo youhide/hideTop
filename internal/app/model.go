@@ -68,11 +68,14 @@ type Model struct {
 	collectCancel    context.CancelFunc
 	collectingConns  bool
 	connsSampleAt    time.Time
-	paused           bool // metrics auto-refresh paused by the user
+	connsGen         uint32 // bumped on each connectionsMsg, part of the layout key
+	paused           bool   // metrics auto-refresh paused by the user
 
-	// Terminal geometry.
+	// Terminal geometry and the memoised metrics-section render. layout is a
+	// pointer so View, which has a value receiver, can fill it.
 	width  int
 	height int
+	layout *layoutCache
 
 	// Process list view and selection.
 	sortBy          metrics.SortField
@@ -109,6 +112,7 @@ func New(cfg config.Config) Model {
 		cfg:          cfg,
 		sortBy:       metrics.SortByCPU,
 		hiddenPanels: hidden,
+		layout:       &layoutCache{},
 	}
 }
 
@@ -215,6 +219,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.collectingConns = false
 		if nc := metrics.NetConnections(msg); nc.Available {
 			m.conns = nc
+			m.connsGen++
 			if mx := ui.NetworkScrollMax(m.netDelta, m.conns.Listening); m.netScroll > mx {
 				m.netScroll = mx
 			}

@@ -49,7 +49,7 @@ func parse(fs *flag.FlagSet, args []string, loadFile func() *fileConfig) Config 
 		"metrics refresh interval (e.g. 500ms, 1s, 2s)")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	showVersionShort := fs.Bool("v", false, "print version and exit")
-	debug := fs.Bool("debug", false, "enable debug logging to stderr")
+	debug := fs.Bool("debug", false, "write debug logs to a file (path printed on exit)")
 	theme := fs.String("theme", "", "color theme (dark, light, dracula, nord, monokai)")
 	noGPU := fs.Bool("no-gpu", false, "disable GPU metrics")
 	noTemp := fs.Bool("no-temp", false, "disable temperature metrics")
@@ -135,11 +135,10 @@ func visitedFlags(fs *flag.FlagSet) map[string]bool {
 }
 
 func loadConfigFile() *fileConfig {
-	home, err := os.UserHomeDir()
+	path, err := configPath()
 	if err != nil {
 		return nil
 	}
-	path := filepath.Join(home, ".config", "hideTop", "config.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -152,14 +151,43 @@ func loadConfigFile() *fileConfig {
 	return &fc
 }
 
-// configPath returns the path to the user config file.
+// configPath returns the path to the user config file, honouring
+// XDG_CONFIG_HOME. loadConfigFile used to build this path separately, so the
+// two could drift.
 func configPath() (string, error) {
+	dir, err := configDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.json"), nil
+}
+
+// configDir returns the directory holding hideTop's configuration.
+func configDir() (string, error) {
+	if base := os.Getenv("XDG_CONFIG_HOME"); base != "" {
+		return filepath.Join(base, appDirName), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "hideTop", "config.json"), nil
+	return filepath.Join(home, ".config", appDirName), nil
 }
+
+// StateDir returns the directory for non-configuration state such as the debug
+// log, honouring XDG_STATE_HOME.
+func StateDir() (string, error) {
+	if base := os.Getenv("XDG_STATE_HOME"); base != "" {
+		return filepath.Join(base, appDirName), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "state", appDirName), nil
+}
+
+const appDirName = "hideTop"
 
 // SaveInterval persists the refresh interval to the config file.
 func SaveInterval(d time.Duration) error {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -35,9 +36,7 @@ func (m Model) pageSize() int {
 // computeUsedLines is the number of screen lines consumed by everything that
 // is not a process row: the header, the metrics section and the help bar.
 func (m Model) computeUsedLines() int {
-	colL, colR, twoCol := m.columns()
-	section := m.buildMetricsSection(colL, colR, twoCol)
-	return headerLines + strings.Count(section, "\n") + 1 + helpLines
+	return headerLines + m.metricsLayout().lines + helpLines
 }
 
 // columns returns the per-column widths and whether the two-column layout is
@@ -117,6 +116,81 @@ func (m Model) metricsBudget() int {
 	_, h := m.screen()
 	floor := h - headerLines - helpLines - ui.ProcessPanelChrome - minProcRows
 	return max(0, min(floor, h*metricsHeightPercent/100))
+}
+
+// layoutKey identifies everything the metrics layout depends on. Comparable
+// with ==, so a cache hit is one comparison.
+type layoutKey struct {
+	width      int
+	height     int
+	snapAt     time.Time // identity of the whole snapshot
+	connsGen   uint32    // bumped on each connectionsMsg
+	tempScroll int
+	netScroll  int
+	hidden     string // hidden panels, joined
+}
+
+// layoutCache memoises one metrics-section render.
+//
+// It hangs off Model by pointer so View, which has a value receiver and cannot
+// mutate the model, can still fill it. Bubble Tea runs Update and View on one
+// goroutine, so no synchronisation is needed.
+//
+// Without it the section was rendered two to four times per input event: once
+// for View, once for computeUsedLines (via pageSize and the mouse handler) and
+// once more for metricPanelAt, which hit-tests every mouse wheel notch by
+// re-rendering all the panels to find their rectangles.
+type layoutCache struct {
+	key     layoutKey
+	valid   bool
+	panels  []metricPanel
+	section string
+	lines   int
+}
+
+// currentLayoutKey captures the inputs of the current frame.
+//
+// Snapshot identity is CollectedAt. Any code that mutates m.snap in place,
+// rather than replacing it from a snapshotMsg, must call invalidateLayout.
+func (m Model) currentLayoutKey() layoutKey {
+	w, h := m.screen()
+	return layoutKey{
+		width:      w,
+		height:     h,
+		snapAt:     m.snap.CollectedAt,
+		connsGen:   m.connsGen,
+		tempScroll: m.tempScroll,
+		netScroll:  m.netScroll,
+		hidden:     strings.Join(m.hiddenPanelList(), ","),
+	}
+}
+
+// metricsLayout is the single entry point for the laid-out metrics section.
+func (m Model) metricsLayout() *layoutCache {
+	c := m.layout
+	if c == nil {
+		c = &layoutCache{} // zero-value Model: correct, just uncached
+	}
+	if k := m.currentLayoutKey(); c.valid && c.key == k {
+		return c
+	} else {
+		c.key = k
+	}
+
+	colL, colR, twoCol := m.columns()
+	c.panels = m.layoutMetrics(colL, twoCol)
+	c.section = joinMetricsSection(c.panels, colL, colR, twoCol)
+	c.lines = strings.Count(c.section, "\n") + 1
+	c.valid = true
+	return c
+}
+
+// invalidateLayout drops the cached section. Call it after mutating m.snap in
+// place rather than replacing it.
+func (m Model) invalidateLayout() {
+	if m.layout != nil {
+		m.layout.valid = false
+	}
 }
 
 // layoutMetrics renders the metric panels and assigns each to a column.
@@ -232,9 +306,8 @@ func (m Model) renderPanels(cw int, twoCol, compact bool, tempRows, netRows int,
 
 // buildMetricsSection renders all metric panels and joins them into a single
 // string. Shared by View() and computeUsedLines() to avoid duplication.
-func (m Model) buildMetricsSection(colL, colR int, twoCol bool) string {
-	panels := m.layoutMetrics(colL, twoCol)
-
+// joinMetricsSection joins laid-out panels into the rendered section.
+func joinMetricsSection(panels []metricPanel, colL, colR int, twoCol bool) string {
 	if !twoCol {
 		rows := make([]string, 0, len(panels))
 		for _, p := range panels {
@@ -259,8 +332,10 @@ func (m Model) buildMetricsSection(colL, colR int, twoCol bool) string {
 // metricRects returns the on-screen rectangle of each metric panel, used for
 // mouse hit-testing. Left and right columns stack independently below the
 // header row.
-func (m Model) metricRects(colL int, twoCol bool) []panelRect {
-	panels := m.layoutMetrics(colL, twoCol)
+// metricRects maps each laid-out panel to the screen rows it occupies, for
+// mouse hit-testing.
+func (m Model) metricRects(twoCol bool) []panelRect {
+	panels := m.metricsLayout().panels
 	const headerRows = 1
 	ly, ry := headerRows, headerRows
 	rects := make([]panelRect, 0, len(panels))
@@ -278,21 +353,15 @@ func (m Model) metricRects(colL int, twoCol bool) []panelRect {
 
 // metricPanelAt returns the name of the metric panel under the given screen
 // coordinates, or "" if none (e.g. the pointer is over the process list).
+// metricPanelAt returns the name of the metric panel under the given screen
+// position, or empty when there is none.
 func (m Model) metricPanelAt(x, y int) string {
-	w := m.width
-	if w == 0 {
-		w = 80
-	}
-	twoCol := w >= 110
-	colL := w
-	if twoCol {
-		colL = w / 2
-	}
+	colL, _, twoCol := m.columns()
 	col := 0
 	if twoCol && x >= colL {
 		col = 1
 	}
-	for _, r := range m.metricRects(colL, twoCol) {
+	for _, r := range m.metricRects(twoCol) {
 		if r.col == col && y >= r.y0 && y < r.y1 {
 			return r.name
 		}

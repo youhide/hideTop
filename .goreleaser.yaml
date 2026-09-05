@@ -7,7 +7,7 @@ before:
     - go mod tidy
 
 builds:
-  - main: ./src
+  - main: ./cmd/hidetop
     binary: hidetop
     env:
       - CGO_ENABLED=0

@@ -20,15 +20,15 @@ func RenderDisk(delta metrics.DiskDelta, disk metrics.DiskStats, width int) stri
 	// I/O throughput
 	if delta.Available {
 		if innerW < 34 {
-			b.WriteString(fmt.Sprintf("  r %s/s  w %s/s",
+			fmt.Fprintf(&b, "  r %s/s  w %s/s",
 				GreenStyle.Render(formatBytesCompact(delta.ReadSec)),
 				YellowStyle.Render(formatBytesCompact(delta.WriteSec)),
-			))
+			)
 		} else {
-			b.WriteString(fmt.Sprintf("  read %s/s   write %s/s",
+			fmt.Fprintf(&b, "  read %s/s   write %s/s",
 				GreenStyle.Render(formatBytes(delta.ReadSec)),
 				YellowStyle.Render(formatBytes(delta.WriteSec)),
-			))
+			)
 		}
 		b.WriteByte('\n')
 	}

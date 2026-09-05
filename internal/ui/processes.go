@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -211,7 +212,7 @@ func renderProcessLine(dp displayProc, compact bool, width int) string {
 
 	thrStr := ""
 	if p.NumThreads > 0 {
-		thrStr = fmt.Sprintf("%d", p.NumThreads)
+		thrStr = strconv.Itoa(int(p.NumThreads))
 	}
 
 	return fmt.Sprintf("  %-7d %s %s %s %s %s %s",

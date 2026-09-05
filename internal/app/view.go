@@ -45,19 +45,7 @@ func (m Model) View() string {
 
 	header := m.renderHeader(w)
 
-	// Decide layout: two-column if wide enough
-	twoCol := w >= 110
-	var colL, colR int
-	if twoCol {
-		colL = w / 2
-		colR = w - colL // handles odd widths
-	} else {
-		colL = w
-		colR = w
-	}
-
-	// Render panels at appropriate widths
-	metricsSection := m.buildMetricsSection(colL, colR, twoCol)
+	metricsSection := m.metricsLayout().section
 
 	// Filter processes and resolve PID-based selection.
 	procs := m.filteredProcesses()

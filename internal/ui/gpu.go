@@ -78,9 +78,9 @@ func RenderGPUCompact(stats *gpu.Stats, width int, history []float64, compact bo
 
 	// GPU temperature (shown only if collected)
 	if !compact && stats.Temperature > 0 {
-		b.WriteString(fmt.Sprintf("  temp: %s",
+		fmt.Fprintf(&b, "  temp: %s",
 			levelText[tempLevel(stats.Temperature)].Render(fmt.Sprintf("%.0f°C", stats.Temperature)),
-		))
+		)
 		b.WriteByte('\n')
 	}
 

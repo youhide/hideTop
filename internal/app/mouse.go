@@ -64,10 +64,6 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 		// Compute viewport start (same logic as RenderProcesses)
 		selectedIdx := ui.DisplayIndexForPID(procs, m.treeView, m.selectedPID, m.lastSelectedIdx)
-		h := m.height
-		if h == 0 {
-			h = 24
-		}
 		maxRows, _ := m.procViewport()
 		viewStart := 0
 		if maxRows > 0 && selectedIdx >= maxRows {

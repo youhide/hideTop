@@ -35,7 +35,7 @@ func RenderCPUCompact(cpu metrics.CPUStats, width int, history []float64, compac
 	case compact:
 		// Per-core bars omitted; TOTAL and the sparkline carry the signal.
 	case innerW < 36:
-		for i := 0; i < n; i++ {
+		for i := range n {
 			label := fmt.Sprintf("c%d %4.0f%%", i, cpu.PerCore[i])
 			b.WriteString(renderBar(cpu.PerCore[i], label, innerW))
 			if i < n-1 {
@@ -48,7 +48,7 @@ func RenderCPUCompact(cpu metrics.CPUStats, width int, history []float64, compac
 		colWidth := (innerW - 2) / 2
 
 		var leftCol, rightCol strings.Builder
-		for i := 0; i < half; i++ {
+		for i := range half {
 			label := fmt.Sprintf("cpu%-2d %5.1f%%", i, cpu.PerCore[i])
 			leftCol.WriteString(renderBar(cpu.PerCore[i], label, colWidth))
 			if i < half-1 {

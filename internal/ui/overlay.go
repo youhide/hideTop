@@ -79,7 +79,7 @@ func RenderOverlay(title string, build func(cw int) []string, width, height, scr
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorTitle).Render(fitPlain(title, cw)))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	for i := 0; i < contentRows; i++ {
+	for i := range contentRows {
 		if i < len(window) {
 			b.WriteString(window[i])
 		}

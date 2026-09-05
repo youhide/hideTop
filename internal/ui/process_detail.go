@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/youhide/hideTop/internal/metrics"
@@ -50,11 +51,11 @@ func processDetailLines(d ProcessDetail, cw int) []string {
 			SubtleStyle.Render(fitPlain(value, valueW)))
 	}
 
-	field("PID", fmt.Sprintf("%d", d.PID))
-	field("PPID", fmt.Sprintf("%d", d.PPID))
+	field("PID", strconv.Itoa(int(d.PID)))
+	field("PPID", strconv.Itoa(int(d.PPID)))
 	field("User", d.User)
 	field("State", stateLabel(d.State)+" ("+d.State+")")
-	field("Threads", fmt.Sprintf("%d", d.NumThreads))
+	field("Threads", strconv.Itoa(int(d.NumThreads)))
 	field("CPU%", fmt.Sprintf("%.1f%%", d.CPUPercent))
 	field("MEM%", fmt.Sprintf("%.1f%%", d.MemPercent))
 
@@ -65,7 +66,7 @@ func processDetailLines(d ProcessDetail, cw int) []string {
 		field("VMS", formatBytes(float64(d.VMS)))
 	}
 	if d.NumFDs > 0 {
-		field("Open FDs", fmt.Sprintf("%d", d.NumFDs))
+		field("Open FDs", strconv.Itoa(int(d.NumFDs)))
 	}
 
 	if d.Cmdline != "" {

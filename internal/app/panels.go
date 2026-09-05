@@ -1,9 +1,5 @@
 package app
 
-import (
-	"strings"
-)
-
 // panelName identifies a metric panel for visibility toggling and layout.
 type panelName string
 
@@ -50,14 +46,4 @@ func (m Model) hiddenPanelList() []string {
 		}
 	}
 	return out
-}
-
-// hiddenPanelsLabel renders the "hidden: temp,net" header chip, or empty when
-// nothing is hidden.
-func (m Model) hiddenPanelsLabel() string {
-	hidden := m.hiddenPanelList()
-	if len(hidden) == 0 {
-		return ""
-	}
-	return "hidden:" + strings.Join(hidden, ",")
 }

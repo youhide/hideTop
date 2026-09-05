@@ -4,8 +4,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 func TestApplyThemeKeepsTitleSingleLine(t *testing.T) {
@@ -27,13 +25,13 @@ func TestApplyThemeRebuildsHotStyles(t *testing.T) {
 	for _, name := range AvailableThemes() {
 		ApplyTheme(name)
 		want := themes[name]
-		if got := pctCellWide[levelRed].GetForeground(); got != lipgloss.Color(want.Red) {
+		if got := pctCellWide[levelRed].GetForeground(); got != want.Red {
 			t.Errorf("%s: pctCellWide[red] foreground = %v, want %v", name, got, want.Red)
 		}
-		if got := selectedRow.GetForeground(); got != lipgloss.Color(want.SelectedFg) {
+		if got := selectedRow.GetForeground(); got != want.SelectedFg {
 			t.Errorf("%s: selectedRow foreground = %v, want %v", name, got, want.SelectedFg)
 		}
-		if got := selectedRow.GetBackground(); got != lipgloss.Color(want.SelectedBg) {
+		if got := selectedRow.GetBackground(); got != want.SelectedBg {
 			t.Errorf("%s: selectedRow background = %v, want %v", name, got, want.SelectedBg)
 		}
 		if want.SelectedFg == "" {

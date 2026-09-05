@@ -104,15 +104,15 @@ func RenderNetworkScrollRows(delta metrics.NetworkDelta, ports []metrics.PortInf
 	var b strings.Builder
 	if delta.Available {
 		if innerW < 34 {
-			b.WriteString(fmt.Sprintf("  ↓ %s/s  ↑ %s/s",
+			fmt.Fprintf(&b, "  ↓ %s/s  ↑ %s/s",
 				GreenStyle.Render(formatBytesCompact(delta.TotalInSec)),
 				YellowStyle.Render(formatBytesCompact(delta.TotalOutSec)),
-			))
+			)
 		} else {
-			b.WriteString(fmt.Sprintf("  ▼ %s/s   ▲ %s/s",
+			fmt.Fprintf(&b, "  ▼ %s/s   ▲ %s/s",
 				GreenStyle.Render(formatBytes(delta.TotalInSec)),
 				YellowStyle.Render(formatBytes(delta.TotalOutSec)),
-			))
+			)
 		}
 		b.WriteByte('\n')
 	}

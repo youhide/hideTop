@@ -1,7 +1,7 @@
 package app
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/youhide/hideTop/internal/metrics"
@@ -90,7 +90,7 @@ func (m Model) filteredProcesses() []metrics.ProcessInfo {
 	for _, p := range procs {
 		if strings.Contains(strings.ToLower(p.Name), query) ||
 			strings.Contains(strings.ToLower(p.User), query) ||
-			strings.Contains(fmt.Sprintf("%d", p.PID), query) {
+			strings.Contains(strconv.Itoa(int(p.PID)), query) {
 			result = append(result, p)
 		}
 	}

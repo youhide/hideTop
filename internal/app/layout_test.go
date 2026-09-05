@@ -39,6 +39,10 @@ func busyModel(w, h int) Model {
 		{Port: 3722, Proto: "udp", Process: "rapportd"},
 		{Port: 5000, Proto: "tcp", Process: "ControlCenter"},
 	}}
+	// The layout cache keys on snapshot identity (CollectedAt), so anything
+	// that assigns m.snap in place rather than going through snapshotMsg has
+	// to drop the cache explicitly.
+	m.invalidateLayout()
 	return m
 }
 
