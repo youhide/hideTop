@@ -14,29 +14,47 @@ func RenderHelp(width int) string {
 	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTitle)
 	sep := SubtleStyle.Render("   ")
 
-	// Greedily fill the bar in priority order, measuring in display cells so a
-	// narrow terminal degrades instead of wrapping.
-	hints := make([]Binding, 0, len(Bindings))
-	for _, b := range Bindings {
+	label := func(b Binding) string {
+		if b.HintKeys != "" {
+			return b.HintKeys
+		}
+		return b.Display
+	}
+	segment := func(b Binding) string {
+		return keyStyle.Render(label(b)) + " " + SubtleStyle.Render(b.Hint)
+	}
+
+	// Two orders are at play. HintPri decides what to drop as the bar narrows
+	// (help and quit outlast the rest), but the bar itself reads in table
+	// order, so the keys do not reshuffle as the terminal is resized.
+	var candidates []int
+	for i, b := range Bindings {
 		if b.Hint != "" {
-			hints = append(hints, b)
+			candidates = append(candidates, i)
 		}
 	}
-	slices.SortFunc(hints, func(a, b Binding) int { return a.HintPri - b.HintPri })
+	byPriority := slices.Clone(candidates)
+	slices.SortFunc(byPriority, func(a, b int) int { return Bindings[a].HintPri - Bindings[b].HintPri })
 
-	var parts []string
+	keep := map[int]bool{}
 	used := 0
-	for _, h := range hints {
-		seg := keyStyle.Render(h.Display) + " " + SubtleStyle.Render(h.Hint)
-		cost := lipgloss.Width(seg)
-		if len(parts) > 0 {
+	for _, i := range byPriority {
+		cost := lipgloss.Width(segment(Bindings[i]))
+		if len(keep) > 0 {
 			cost += lipgloss.Width(sep)
 		}
 		if used+cost > width {
 			continue
 		}
-		parts = append(parts, seg)
+		keep[i] = true
 		used += cost
+	}
+
+	var parts []string
+	for _, i := range candidates {
+		if keep[i] {
+			parts = append(parts, segment(Bindings[i]))
+		}
 	}
 
 	return lipgloss.NewStyle().
