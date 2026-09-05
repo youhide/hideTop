@@ -27,7 +27,7 @@ func (b *AppleBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 		return Stats{}
 	}
 
-	s := Stats{Available: true, Name: appleSoCName()}
+	s := Stats{Name: appleSoCName()}
 
 	var ioregData []byte
 	func() {
@@ -39,9 +39,14 @@ func (b *AppleBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 		}
 	}()
 
+	// Available is set only once ioreg actually yields GPU data. It used to be
+	// hardcoded true, so a machine where AGXAccelerator returns nothing — a
+	// virtualised Mac, for instance — rendered a GPU panel full of zeros
+	// instead of no panel at all.
 	if len(ioregData) > 0 {
 		if util, ok := parseUtilization(ioregData); ok {
 			s.Utilization = util
+			s.Available = true
 		}
 		// Best effort. Apple Silicon does not publish a GPU clock through
 		// AGXAccelerator — its PerformanceStatistics carry utilisation and
@@ -54,10 +59,16 @@ func (b *AppleBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 		}
 		if engines := parseEnginesFromIOReg(ioregData); len(engines) > 0 {
 			s.Engines = engines
+			s.Available = true
 		}
 		if cores, ok := parseCoreCount(ioregData); ok {
 			s.CoreCount = cores
+			s.Available = true
 		}
+	}
+
+	if !s.Available {
+		return Stats{}
 	}
 
 	if state, ok := collectThermal(ctx); ok {

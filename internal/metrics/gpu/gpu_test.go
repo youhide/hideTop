@@ -84,10 +84,16 @@ func TestAppleBackendLabelsTheGPU(t *testing.T) {
 	defer cancel()
 	s := b.Collect(ctx, 0)
 	if !s.Available {
-		t.Skip("Apple GPU backend reported unavailable")
+		// Virtualised Macs (the CI runners among them) have no AGXAccelerator.
+		// Reporting unavailable is the correct outcome there; what must not
+		// happen is claiming availability with nothing behind it.
+		if s.Name != "" || s.CoreCount != 0 || s.Utilization != 0 || len(s.Engines) != 0 {
+			t.Errorf("unavailable GPU returned populated stats: %+v", s)
+		}
+		t.Skip("no Apple GPU on this machine")
 	}
 	if s.Name == "" {
-		t.Error("Apple GPU has no name")
+		t.Error("Apple GPU is available but has no name")
 	}
 	if s.CoreCount <= 0 {
 		t.Errorf("CoreCount = %d, want a positive core count", s.CoreCount)
