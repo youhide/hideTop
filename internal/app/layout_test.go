@@ -104,3 +104,61 @@ func TestNetworkPanelHeightIsStable(t *testing.T) {
 		t.Errorf("panel height changed when an interface went idle: %d vs %d lines", ha+1, hb+1)
 	}
 }
+
+// TestScrollReachesEveryRow pins that the per-panel scroll clamps use the row
+// count the layout actually rendered with. The panels size to the available
+// height, so clamping against a fixed default either stranded the last rows
+// out of reach or let the offset run past the end with nothing moving.
+func TestScrollReachesEveryRow(t *testing.T) {
+	for _, h := range []int{24, 33, 50, 70} {
+		m := busyModel(130, h)
+
+		lay := m.metricsLayout()
+		sensors := len(m.snap.Temperature.Sensors)
+
+		// The last sensor must be reachable...
+		wantMax := max(0, sensors-lay.tempRows)
+		if got := m.tempScrollMax(); got != wantMax {
+			t.Errorf("h=%d: tempScrollMax = %d, want %d (panel renders %d rows of %d sensors)",
+				h, got, wantMax, lay.tempRows, sensors)
+		}
+
+		// ...and scrolling to that maximum must actually be the end: one more
+		// notch may not change what is on screen.
+		m.tempScroll = m.tempScrollMax()
+		atEnd := m.metricsLayout().section
+		m.tempScroll++
+		m.invalidateLayout()
+		if m.metricsLayout().section != atEnd {
+			t.Errorf("h=%d: scrolling past tempScrollMax still moved the panel", h)
+		}
+	}
+}
+
+// TestBudgetHoldsWhenPanelsShareAColumn pins that the two scrollable panels
+// consume the column's slack rather than each growing into all of it. In
+// single-column mode they always share a column, so double-counting the slack
+// overshot the height budget and ate into the process list.
+func TestBudgetHoldsWhenPanelsShareAColumn(t *testing.T) {
+	for _, w := range []int{80, 100} { // below twoColumnMinWidth: one column
+		for _, h := range []int{30, 40, 55, 70} {
+			m := busyModel(w, h)
+			colL, _, twoCol := m.columns()
+			if twoCol {
+				t.Fatalf("w=%d unexpectedly used two columns", w)
+			}
+
+			// The budget is unreachable when even minimum-height panels
+			// overflow it, so the guarantee is the weaker one that matters:
+			// growth never pushes the section past the budget, and never past
+			// where the minimum layout already sat.
+			floor := sectionHeight(m.renderPanels(colL, twoCol, true, ui.TempMinRows, ui.NetMinRows, nil))
+			limit := max(m.metricsBudget(), floor)
+			if got := sectionHeight(m.metricsLayout().panels); got > limit {
+				t.Errorf("w=%d h=%d: growth took the section to %d lines, past the limit of %d "+
+					"(budget %d, minimum layout %d)",
+					w, h, got, limit, m.metricsBudget(), floor)
+			}
+		}
+	}
+}

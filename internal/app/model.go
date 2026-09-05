@@ -196,10 +196,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.snap = newSnap
 
 		// Keep per-panel scroll offsets within bounds as content changes.
-		if mx := ui.TemperatureScrollMax(m.snap.Temperature); m.tempScroll > mx {
+		if mx := m.tempScrollMax(); m.tempScroll > mx {
 			m.tempScroll = mx
 		}
-		if mx := ui.NetworkScrollMax(m.netDelta, m.conns.Listening); m.netScroll > mx {
+		if mx := m.netScrollMax(); m.netScroll > mx {
 			m.netScroll = mx
 		}
 
@@ -220,7 +220,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if nc := metrics.NetConnections(msg); nc.Available {
 			m.conns = nc
 			m.connsGen++
-			if mx := ui.NetworkScrollMax(m.netDelta, m.conns.Listening); m.netScroll > mx {
+			if mx := m.netScrollMax(); m.netScroll > mx {
 				m.netScroll = mx
 			}
 		}

@@ -92,6 +92,9 @@ const (
 	metricsHeightPercent = 55
 )
 
+// ceilDiv divides a by b, rounding up.
+func ceilDiv(a, b int) int { return (a + b - 1) / b }
+
 // sectionHeight is the rendered height of a laid-out metrics section: the
 // taller of the two columns.
 func sectionHeight(panels []metricPanel) int {
@@ -146,6 +149,12 @@ type layoutCache struct {
 	panels  []metricPanel
 	section string
 	lines   int
+	// Body rows the scrollable panels were actually rendered with. The scroll
+	// clamps must use these, not the defaults: the panels size to the height
+	// available, so clamping against a fixed count either stranded the last
+	// sensors out of reach or let the user scroll past the end into nothing.
+	tempRows int
+	netRows  int
 }
 
 // currentLayoutKey captures the inputs of the current frame.
@@ -178,7 +187,7 @@ func (m Model) metricsLayout() *layoutCache {
 	}
 
 	colL, colR, twoCol := m.columns()
-	c.panels = m.layoutMetrics(colL, twoCol)
+	c.panels, c.tempRows, c.netRows = m.layoutMetrics(colL, twoCol)
 	c.section = joinMetricsSection(c.panels, colL, colR, twoCol)
 	c.lines = strings.Count(c.section, "\n") + 1
 	c.valid = true
@@ -203,13 +212,13 @@ func (m Model) invalidateLayout() {
 // The second pass reuses the first pass's column assignment. Re-running the
 // greedy packing on the grown panels would move them between columns and blow
 // the budget the growth was computed against.
-func (m Model) layoutMetrics(colL int, twoCol bool) []metricPanel {
+func (m Model) layoutMetrics(colL int, twoCol bool) (panels []metricPanel, tempRows, netRows int) {
 	cw := colL // all panels render at the left-column width for a stable layout
 
 	// Detail rows (per-core CPU bars, GPU engines) are dropped only when
 	// keeping them would starve the process list, rather than at a fixed
 	// height threshold: a tall terminal keeps the detail and still has room.
-	panels := m.renderPanels(cw, twoCol, false, ui.TempMinRows, ui.NetMinRows, nil)
+	panels = m.renderPanels(cw, twoCol, false, ui.TempMinRows, ui.NetMinRows, nil)
 	budget := m.metricsBudget()
 	compact := sectionHeight(panels) > budget
 	if compact {
@@ -222,12 +231,17 @@ func (m Model) layoutMetrics(colL int, twoCol bool) []metricPanel {
 		assign[p.name] = p.col
 		colHeight[p.col] += p.h
 	}
-	slackFor := func(name string) int {
+	// Slack is consumed, not shared: temperature and network can land in the
+	// same column (always, in single-column mode), and letting each grow into
+	// the full remaining slack would overshoot the budget by that much.
+	takeSlack := func(name string, want int) int {
 		col, ok := assign[name]
 		if !ok {
 			return 0
 		}
-		return max(0, budget-colHeight[col])
+		got := max(0, min(want, budget-colHeight[col]))
+		colHeight[col] += got
+		return got
 	}
 
 	// Sensors render two per line when the panel is wide enough, so one line
@@ -236,13 +250,26 @@ func (m Model) layoutMetrics(colL int, twoCol bool) []metricPanel {
 	if ui.TemperatureTwoColumn(cw) {
 		sensorsPerLine = 2
 	}
-	tempRows := min(ui.TempMinRows+slackFor("temp")*sensorsPerLine, ui.TempMaxRows)
-	netRows := min(ui.NetMinRows+slackFor("net"), ui.NetMaxRows)
+	tempGrow := takeSlack(string(panelTemp), ceilDiv(ui.TempMaxRows-ui.TempMinRows, sensorsPerLine))
+	netGrow := takeSlack(string(panelNet), ui.NetMaxRows-ui.NetMinRows)
+
+	tempRows = min(ui.TempMinRows+tempGrow*sensorsPerLine, ui.TempMaxRows)
+	netRows = min(ui.NetMinRows+netGrow, ui.NetMaxRows)
 
 	if tempRows == ui.TempMinRows && netRows == ui.NetMinRows {
-		return panels
+		return panels, tempRows, netRows
 	}
-	return m.renderPanels(cw, twoCol, compact, tempRows, netRows, assign)
+	return m.renderPanels(cw, twoCol, compact, tempRows, netRows, assign), tempRows, netRows
+}
+
+// tempScrollMax and netScrollMax bound the per-panel scroll offsets using the
+// row counts the layout actually rendered with.
+func (m Model) tempScrollMax() int {
+	return ui.TemperatureScrollMaxRows(m.snap.Temperature, m.metricsLayout().tempRows)
+}
+
+func (m Model) netScrollMax() int {
+	return ui.NetworkScrollMaxRows(m.netDelta, m.conns.Listening, m.metricsLayout().netRows)
 }
 
 // renderPanels renders every visible metric panel and assigns it to a column.

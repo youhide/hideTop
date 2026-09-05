@@ -87,7 +87,7 @@ func (m *Model) handlePanelScroll(msg tea.MouseMsg, dir int) bool {
 	switch m.metricPanelAt(msg.X, msg.Y) {
 	case "temp":
 		v := m.tempScroll + dir
-		if mx := ui.TemperatureScrollMax(m.snap.Temperature); v > mx {
+		if mx := m.tempScrollMax(); v > mx {
 			v = mx
 		}
 		if v < 0 {
@@ -97,7 +97,7 @@ func (m *Model) handlePanelScroll(msg tea.MouseMsg, dir int) bool {
 		return true
 	case "net":
 		v := m.netScroll + dir
-		if mx := ui.NetworkScrollMax(m.netDelta, m.conns.Listening); v > mx {
+		if mx := m.netScrollMax(); v > mx {
 			v = mx
 		}
 		if v < 0 {
