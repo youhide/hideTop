@@ -1,6 +1,11 @@
 package gpu
 
-import "testing"
+import (
+	"context"
+	"runtime"
+	"testing"
+	"time"
+)
 
 func TestParseFrequency(t *testing.T) {
 	tests := []struct {
@@ -50,5 +55,41 @@ func TestComputeEnergyImpactClamps(t *testing.T) {
 				t.Errorf("Score = %v, want within [0,100]", e.Score)
 			}
 		})
+	}
+}
+
+// TestAppleSoCNameIsCached pins that the SoC lookup is a one-shot: it shells
+// out to sysctl, and the value cannot change while the process runs.
+func TestAppleSoCNameIsCached(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("sysctl machdep.cpu.brand_string is darwin-only")
+	}
+	first := appleSoCName()
+	if first == "" {
+		t.Skip("SoC name unavailable on this machine")
+	}
+	if second := appleSoCName(); second != first {
+		t.Errorf("appleSoCName() returned %q then %q; it must be stable", first, second)
+	}
+}
+
+// TestAppleBackendLabelsTheGPU pins the fix for an unnamed GPU panel:
+// AGXAccelerator exposes no product name, so the panel had no label at all.
+func TestAppleBackendLabelsTheGPU(t *testing.T) {
+	var b AppleBackend
+	if !b.Supported() {
+		t.Skip("not an Apple Silicon Mac")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s := b.Collect(ctx, 0)
+	if !s.Available {
+		t.Skip("Apple GPU backend reported unavailable")
+	}
+	if s.Name == "" {
+		t.Error("Apple GPU has no name")
+	}
+	if s.CoreCount <= 0 {
+		t.Errorf("CoreCount = %d, want a positive core count", s.CoreCount)
 	}
 }

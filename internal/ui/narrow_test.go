@@ -162,3 +162,19 @@ func TestWideCharSensorLabelsDoNotOverflow(t *testing.T) {
 		}
 	}
 }
+
+// TestGPUHeaderShowsNameAndCores pins that both identities appear: the header
+// used to be an either/or, so a named GPU hid its core count.
+func TestGPUHeaderShowsNameAndCores(t *testing.T) {
+	stats := &gpu.Stats{Available: true, Name: "Apple M5", CoreCount: 10, Utilization: 20}
+	out := RenderGPU(stats, 80, nil)
+	for _, want := range []string{"Apple M5", "10 cores"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("GPU header missing %q:\n%s", want, out)
+		}
+	}
+	// A GPU with no name must not render a stray separator.
+	if got := RenderGPU(&gpu.Stats{Available: true, CoreCount: 10}, 80, nil); !strings.Contains(got, "GPU  10 cores") {
+		t.Errorf("unnamed GPU header malformed:\n%s", got)
+	}
+}

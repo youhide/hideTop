@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -26,7 +27,7 @@ func (b *AppleBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 		return Stats{}
 	}
 
-	s := Stats{Available: true}
+	s := Stats{Available: true, Name: appleSoCName()}
 
 	var ioregData []byte
 	func() {
@@ -42,6 +43,12 @@ func (b *AppleBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 		if util, ok := parseUtilization(ioregData); ok {
 			s.Utilization = util
 		}
+		// Best effort. Apple Silicon does not publish a GPU clock through
+		// AGXAccelerator — its PerformanceStatistics carry utilisation and
+		// memory only, and the clock lives behind the private IOReport API,
+		// which needs elevated privileges this tool deliberately avoids. The
+		// parse stays for any model that does expose one; the panel simply
+		// omits the row when it comes back zero.
 		if freq, ok := parseFrequency(ioregData); ok {
 			s.FrequencyMHz = freq
 		}
@@ -61,6 +68,20 @@ func (b *AppleBackend) Collect(ctx context.Context, cpuTotal float64) Stats {
 	s.Energy = ComputeEnergyImpact(cpuTotal, s.Utilization, true, s.Thermal)
 	return s
 }
+
+// appleSoCName returns the marketing name of the SoC ("Apple M5"), which is
+// also the GPU's identity on Apple Silicon: AGXAccelerator itself exposes no
+// product name, so the GPU panel had no label at all. The value is fixed for
+// the life of the machine, so it is read once.
+var appleSoCName = sync.OnceValue(func() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "sysctl", "-n", "machdep.cpu.brand_string").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+})
 
 // hasCommand checks if a command exists in PATH.
 func hasCommand(name string) bool {

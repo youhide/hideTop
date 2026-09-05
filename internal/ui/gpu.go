@@ -30,7 +30,8 @@ func RenderGPUCompact(stats *gpu.Stats, width int, history []float64, compact bo
 	header := "GPU"
 	if stats.Name != "" {
 		header += "  " + stats.Name
-	} else if stats.CoreCount > 0 {
+	}
+	if stats.CoreCount > 0 {
 		header += fmt.Sprintf("  %d cores", stats.CoreCount)
 	}
 	header = fitPlain(header, innerW)
