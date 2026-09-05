@@ -67,3 +67,26 @@ func (m *Model) saveSettings() {
 		}
 	}
 }
+
+// confirmTitle and confirmBody describe the pending kill for the modal.
+func (m Model) confirmTitle() string {
+	if m.confirmKill == signalKill {
+		return "Force kill process?"
+	}
+	return "Terminate process?"
+}
+
+func (m Model) confirmBody() string {
+	name := "process"
+	for _, p := range m.snap.Processes {
+		if p.PID == m.pidToKill {
+			name = p.Name
+			break
+		}
+	}
+	sig := "SIGTERM"
+	if m.confirmKill == signalKill {
+		sig = "SIGKILL"
+	}
+	return fmt.Sprintf("Send %s to PID %d (%s)?", sig, m.pidToKill, name)
+}

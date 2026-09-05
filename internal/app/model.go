@@ -36,6 +36,10 @@ const mouseWheelStep = 3
 // collected (they shell out to lsof on macOS, so this is deliberately slow).
 const connectionsSampleEvery = 3 * time.Second
 
+// collectGracePeriod is how long past its own deadline a collection is given
+// before the watchdog abandons it.
+const collectGracePeriod = 2 * time.Second
+
 type Model struct {
 	// Configuration. Immutable for the session except RefreshInterval, which
 	// the +/- keys adjust and which is persisted on quit.
@@ -138,6 +142,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds := []tea.Cmd{tick(m.cfg.RefreshInterval)}
+		// Watchdog: if a collection overruns its own deadline the result is
+		// never coming (several gopsutil darwin calls ignore the context), and
+		// collecting would otherwise stay true forever with the app silently
+		// frozen. Drop it and let the next tick start a fresh one.
+		if m.collecting && time.Since(m.collectStartedAt) > m.collectionTimeout()+collectGracePeriod {
+			if m.collectCancel != nil {
+				m.collectCancel()
+				m.collectCancel = nil
+			}
+			m.collecting = false
+		}
 		if !m.collecting && !m.paused {
 			ctx, cancel := context.WithTimeout(context.Background(), m.collectionTimeout())
 			m.collectCancel = cancel

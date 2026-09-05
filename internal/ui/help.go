@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -11,38 +12,38 @@ import (
 // clipped by the height guard; `?` opens the full help overlay with everything.
 func RenderHelp(width int) string {
 	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTitle)
-	seg := func(k, d string) string {
-		return keyStyle.Render(k) + " " + SubtleStyle.Render(d)
-	}
+	sep := SubtleStyle.Render("   ")
 
-	var keys []struct{ key, desc string }
-	switch {
-	case width < 44:
-		keys = []struct{ key, desc string }{
-			{"?", "help"}, {"q", "quit"},
-		}
-	case width < 80:
-		keys = []struct{ key, desc string }{
-			{"↑↓", "move"}, {"/", "search"}, {"n", "net"}, {"?", "help"}, {"q", "quit"},
-		}
-	default:
-		keys = []struct{ key, desc string }{
-			{"↑↓/jk", "move"}, {"/", "search"}, {"c/m/p", "sort"},
-			{"n", "net"}, {"?", "more"}, {"q", "quit"},
+	// Greedily fill the bar in priority order, measuring in display cells so a
+	// narrow terminal degrades instead of wrapping.
+	hints := make([]Binding, 0, len(Bindings))
+	for _, b := range Bindings {
+		if b.Hint != "" {
+			hints = append(hints, b)
 		}
 	}
+	slices.SortFunc(hints, func(a, b Binding) int { return a.HintPri - b.HintPri })
 
-	parts := make([]string, len(keys))
-	for i, k := range keys {
-		parts[i] = seg(k.key, k.desc)
+	var parts []string
+	used := 0
+	for _, h := range hints {
+		seg := keyStyle.Render(h.Display) + " " + SubtleStyle.Render(h.Hint)
+		cost := lipgloss.Width(seg)
+		if len(parts) > 0 {
+			cost += lipgloss.Width(sep)
+		}
+		if used+cost > width {
+			continue
+		}
+		parts = append(parts, seg)
+		used += cost
 	}
-	line := strings.Join(parts, SubtleStyle.Render("   "))
 
 	return lipgloss.NewStyle().
 		Width(width).
 		Align(lipgloss.Center).
 		MaxHeight(1).
-		Render(line)
+		Render(strings.Join(parts, sep))
 }
 
 // RenderHelpOverlay renders the full-screen help overlay (non-scrolled).
@@ -67,70 +68,31 @@ func HelpOverlayMaxScroll(width, height int) int {
 // helpOverlayLines builds the help content as one string per line, fitted to
 // the given inner content width.
 func helpOverlayLines(cw int) []string {
-	sections := []struct {
-		title string
-		keys  []struct{ key, desc string }
-	}{
-		{
-			title: "Navigation",
-			keys: []struct{ key, desc string }{
-				{"↑ / k", "Move up in process list"},
-				{"↓ / j", "Move down in process list"},
-				{"PgUp/PgDn", "Jump one page up / down"},
-				{"Home/End", "Jump to first / last (g / G)"},
-				{"Wheel", "Scroll process list; over Temp/Net panels scrolls them"},
-				{"/", "Start incremental search"},
-				{"Esc", "Cancel search / close help / close detail"},
-				{"Enter", "Open process detail panel"},
-			},
-		},
-		{
-			title: "Sorting",
-			keys: []struct{ key, desc string }{
-				{"c", "Sort by CPU% (descending)"},
-				{"m", "Sort by MEM% (descending)"},
-				{"p", "Sort by PID (ascending)"},
-				{"Click", "Click a PID/CPU%/MEM% column header to sort"},
-			},
-		},
-		{
-			title: "Process Actions",
-			keys: []struct{ key, desc string }{
-				{"t", "Toggle tree view"},
-				{"s", "Toggle system process filter"},
-				{"x", "Kill selected process (SIGTERM)"},
-				{"K", "Force kill (SIGKILL)"},
-			},
-		},
-		{
-			title: "Display",
-			keys: []struct{ key, desc string }{
-				{"n", "Open network / ports view"},
-				{"Space", "Pause / resume auto-refresh"},
-				{"z", "Reset Temp/Network panel scroll"},
-				{"+/=", "Increase refresh interval (+250ms)"},
-				{"-/_", "Decrease refresh interval (-250ms)"},
-				{"e", "Export snapshot to JSON"},
-				{"?", "Toggle this help overlay"},
-				{"q / Ctrl+C", "Quit"},
-			},
-		},
-	}
-
 	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTitle)
+
 	var lines []string
-	for si, section := range sections {
+	for si, section := range sections() {
 		if si > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, HeaderStyle.Render(fitPlain(section.title, cw)))
-		descW := cw - 16
-		if descW < 1 {
-			descW = 1
-		}
-		for _, k := range section.keys {
-			lines = append(lines, "  "+keyStyle.Width(12).Render(k.key)+"  "+
-				SubtleStyle.Render(fitPlain(k.desc, descW)))
+		lines = append(lines, HeaderStyle.Render(section))
+		for _, b := range Bindings {
+			if b.Section != section {
+				continue
+			}
+			key := keyStyle.Width(14).Render(b.Display)
+			descW := cw - 14
+			if descW < 1 {
+				descW = 1
+			}
+			wrapped := wrapPlain(b.Desc, descW)
+			if len(wrapped) == 0 {
+				wrapped = []string{""}
+			}
+			lines = append(lines, key+SubtleStyle.Render(wrapped[0]))
+			for _, cont := range wrapped[1:] {
+				lines = append(lines, strings.Repeat(" ", 14)+SubtleStyle.Render(cont))
+			}
 		}
 	}
 	return lines

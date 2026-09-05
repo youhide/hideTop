@@ -25,28 +25,37 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 ## Keyboard shortcuts
 
 | Key | Action |
-|-----|--------|
-| `↑` `↓` / `j` `k` | Move process selection |
-| `PgUp` `PgDn` | Jump one page up / down |
-| `Home` `End` / `g` `G` | Jump to first / last process |
-| `/` | Start incremental search (name, PID, or user), `Esc` to cancel |
-| `Enter` | Open process detail panel |
+| --- | --- |
+| `↑ / k` | Move up |
+| `↓ / j` | Move down |
+| `PgUp / Ctrl+B` | Jump one page up |
+| `PgDn / Ctrl+F` | Jump one page down |
+| `Home / g` | Jump to first |
+| `End / G` | Jump to last |
+| `Wheel` | Scroll the process list; over Temp/Net panels scrolls those |
+| `Click` | Select a process row |
+| `/` | Start incremental search (name, PID or user) |
+| `Esc` | Cancel search |
+| `Enter` | Open process detail |
+| `Esc / q` | Close the overlay |
 | `c` | Sort by CPU% (descending) |
 | `m` | Sort by MEM% (descending) |
 | `p` | Sort by PID (ascending) |
-| `Space` | Pause / resume metrics auto-refresh |
+| `Click header` | Click a PID/CPU%/MEM% column header to sort |
 | `t` | Toggle tree view |
-| `s` | Toggle system process filter |
-| `z` | Reset Temperature / Network panel scroll |
-| `n` | Open the network / ports view (`Esc` or `n` to close) |
-| `x` | Kill selected process (SIGTERM, asks for confirmation) |
-| `K` | Force kill selected process (SIGKILL, asks for confirmation) |
-| `+` / `=` | Increase refresh interval (+250ms) |
-| `-` / `_` | Decrease refresh interval (-250ms) |
-| `e` | Export snapshot to JSON |
-| `?` | Toggle help overlay |
-| `Esc` | Close help / detail / cancel search |
-| `q` / `Ctrl+C` | Quit |
+| `s` | Toggle the system process filter |
+| `x` | Terminate the selected process (SIGTERM) |
+| `K` | Force kill the selected process (SIGKILL) |
+| `e` | Export a snapshot to JSON |
+| `n` | Open the network / ports view |
+| `1 – 6` | Show/hide the CPU, GPU, memory, temperature, network and disk panels |
+| `Space` | Pause / resume auto-refresh |
+| `z` | Reset the Temp/Network panel scroll |
+| `+ / =` | Increase the refresh interval (+250ms) |
+| `- / _` | Decrease the refresh interval (-250ms) |
+| `?` | Toggle this help overlay |
+| `q` | Quit |
+| `Ctrl+C` | Quit from anywhere |
 
 ## Installation
 

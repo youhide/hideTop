@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -96,5 +97,60 @@ func TestPanelToggleKeys(t *testing.T) {
 	}
 	if m = press(m, runes("4")); !m.panelVisible(panelTemp) {
 		t.Error("key 4 did not restore the temperature panel")
+	}
+}
+
+// TestKillConfirmationIsVisible pins that a destructive prompt gets a modal
+// rather than a header chip that a narrow terminal silently truncates away.
+func TestKillConfirmationIsVisible(t *testing.T) {
+	for _, w := range []int{40, 80, 130} {
+		m := busyModel(w, 30)
+		m.selectedPID = m.snap.Processes[0].PID
+		m = press(m, runes("x"))
+		if m.confirmKill == 0 {
+			t.Fatalf("width %d: x did not arm the kill confirmation", w)
+		}
+		view := m.View()
+		if !strings.Contains(view, "Terminate process?") {
+			t.Errorf("width %d: confirmation not shown:\n%s", w, view)
+		}
+		if !strings.Contains(view, "SIGTERM") {
+			t.Errorf("width %d: confirmation does not name the signal", w)
+		}
+	}
+}
+
+// TestWatchdogClearsStuckCollection pins that a collection which never
+// returns cannot leave the app frozen: collecting is only otherwise cleared by
+// a snapshotMsg arriving.
+func TestWatchdogClearsStuckCollection(t *testing.T) {
+	m := keyModel()
+	m.collecting = true
+	m.collectStartedAt = time.Now().Add(-time.Hour)
+
+	next, _ := m.Update(tickMsg(time.Now()))
+	got := next.(Model)
+
+	if got.collecting && got.collectStartedAt.Before(time.Now().Add(-time.Minute)) {
+		t.Error("watchdog did not abandon the stuck collection")
+	}
+}
+
+// TestCollectingLabelWaitsForSlowness pins that the header does not advertise
+// a collection until it is actually slow — it used to appear on every tick and
+// shove the chips to its right.
+func TestCollectingLabelWaitsForSlowness(t *testing.T) {
+	m := keyModel()
+	m.width, m.height = 130, 33
+	m.collecting = true
+
+	m.collectStartedAt = time.Now()
+	if strings.Contains(m.renderHeader(130), "collecting") {
+		t.Error("header showed 'collecting' for a fresh collection")
+	}
+
+	m.collectStartedAt = time.Now().Add(-2 * time.Second)
+	if !strings.Contains(m.renderHeader(130), "collecting") {
+		t.Error("header hid 'collecting' for a slow collection")
 	}
 }

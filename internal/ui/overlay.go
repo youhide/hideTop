@@ -104,3 +104,27 @@ func RenderOverlay(title string, build func(cw int) []string, width, height, scr
 
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
+
+// RenderConfirm draws a centred confirmation dialog over a dimmed background.
+//
+// The kill prompt used to be a chip appended to the header, which
+// appendHeaderMessage drops silently when the line is full — so on a narrow
+// terminal the app could sit waiting for a keypress that sends SIGKILL with
+// nothing on screen saying so.
+func RenderConfirm(title, body, hint string, width, height int) string {
+	inner := max(20, min(60, width-8))
+
+	var lines []string
+	lines = append(lines, RedStyle.Bold(true).Render(fitPlain(title, inner)), "")
+	lines = append(lines, wrapPlain(body, inner)...)
+	lines = append(lines, "", SubtleStyle.Render(fitPlain(hint, inner)))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorRed).
+		Padding(1, 2).
+		Width(inner).
+		Render(strings.Join(lines, "\n"))
+
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}

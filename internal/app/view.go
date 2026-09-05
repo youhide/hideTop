@@ -36,6 +36,13 @@ func (m Model) View() string {
 		return ui.RenderNetworkOverlay(m.conns, m.collectingConns, w, h, m.overlayScroll)
 	}
 
+	// A destructive confirmation gets a real modal. As a header chip it could
+	// be truncated away entirely on a narrow terminal, leaving the app waiting
+	// for a keypress that sends a signal with nothing on screen to say so.
+	if m.confirmKill != 0 {
+		return ui.RenderConfirm(m.confirmTitle(), m.confirmBody(), "y confirm    any other key cancel", w, h)
+	}
+
 	header := m.renderHeader(w)
 
 	// Decide layout: two-column if wide enough

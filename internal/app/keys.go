@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -106,13 +105,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedPID > 0 {
 			m.confirmKill = signalKill
 			m.pidToKill = m.selectedPID
-			m.killMsg = fmt.Sprintf("SIGKILL PID %d? (y/N)", m.selectedPID)
 		}
 	case "x":
 		if m.selectedPID > 0 {
 			m.confirmKill = signalTerm
 			m.pidToKill = m.selectedPID
-			m.killMsg = fmt.Sprintf("Kill PID %d? (y/N)", m.selectedPID)
 		}
 	case "e":
 		msg := m.exportSnapshot()
