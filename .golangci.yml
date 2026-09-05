@@ -1,0 +1,30 @@
+version: "2"
+
+linters:
+  enable:
+    - copyloopvar
+    - errcheck
+    - govet
+    - ineffassign
+    - intrange
+    - misspell
+    - nilnesserr
+    - perfsprint
+    - revive
+    - staticcheck
+    - unconvert
+    - unused
+    - usestdlibvars
+
+  settings:
+    perfsprint:
+      # fmt.Sprintf with a single %s of a non-string is common and readable here.
+      strconcat: false
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+
+formatters:
+  enable:
+    - gofmt
