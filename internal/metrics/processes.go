@@ -1,9 +1,11 @@
 package metrics
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"slices"
 
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
 )
 
@@ -22,10 +24,32 @@ type processSample struct {
 	mem     float32
 }
 
+// memoryPercent computes a process's share of physical memory from its RSS
+// against a total the caller already fetched, falling back to gopsutil's own
+// (much more expensive) helper when the total is unknown.
+func memoryPercent(ctx context.Context, p *process.Process, totalMem uint64) (float32, error) {
+	if totalMem == 0 {
+		return p.MemoryPercentWithContext(ctx)
+	}
+	info, err := p.MemoryInfoWithContext(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return float32(info.RSS) / float32(totalMem) * 100, nil
+}
+
 func CollectProcesses(ctx context.Context, sortBy SortField, limit int) ([]ProcessInfo, error) {
 	procs, err := process.ProcessesWithContext(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Total physical memory, fetched once. p.MemoryPercent() re-queries it for
+	// every PID, so on a machine with ~600 processes that was ~600 redundant
+	// full VirtualMemory() calls per sample.
+	var totalMem uint64
+	if vm, err := mem.VirtualMemoryWithContext(ctx); err == nil {
+		totalMem = vm.Total
 	}
 
 	samples := make([]processSample, 0, len(procs))
@@ -37,7 +61,7 @@ func CollectProcesses(ctx context.Context, sortBy SortField, limit int) ([]Proce
 		}
 
 		cpuPct, cpuErr := p.CPUPercentWithContext(ctx)
-		memPct, memErr := p.MemoryPercentWithContext(ctx)
+		memPct, memErr := memoryPercent(ctx, p, totalMem)
 		if cpuErr != nil || memErr != nil {
 			// Skip the process if either metric is unavailable to avoid
 			// reporting a misleading zero for the failed measurement.
@@ -52,14 +76,14 @@ func CollectProcesses(ctx context.Context, sortBy SortField, limit int) ([]Proce
 		})
 	}
 
-	sort.Slice(samples, func(i, j int) bool {
+	slices.SortFunc(samples, func(a, b processSample) int {
 		switch sortBy {
 		case SortByMem:
-			return samples[i].mem > samples[j].mem
+			return cmp.Compare(b.mem, a.mem)
 		case SortByPID:
-			return samples[i].pid < samples[j].pid
+			return cmp.Compare(a.pid, b.pid)
 		default:
-			return samples[i].cpu > samples[j].cpu
+			return cmp.Compare(b.cpu, a.cpu)
 		}
 	})
 

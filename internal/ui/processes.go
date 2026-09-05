@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -62,36 +63,46 @@ func ProcessSortAtX(width, x int) (metrics.SortField, bool) {
 	return 0, false
 }
 
+// Process panel chrome. RenderProcesses always emits these lines regardless of
+// state and width: top border, title, column header, separator, a trailing
+// blank content line, and the bottom border. Pinned by
+// TestProcessPanelChromeMatchesRender.
+const (
+	// ProcessPanelChrome is every line the panel uses that is not a process row.
+	ProcessPanelChrome = 5
+	// ProcessPanelHeaderRows is how many of those sit above the first row.
+	ProcessPanelHeaderRows = 4
+)
+
 func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width, maxRows int) string {
 	var b strings.Builder
 	innerW := contentWidth(width)
 	compact := innerW < 68
 
 	// Header with optional search indicator
-	b.WriteString(HeaderStyle.Render("Processes"))
+	head := HeaderStyle.Render("Processes")
 	if len(procs) > 0 || state.TotalProcs > 0 {
 		shown := len(procs)
 		total := state.TotalProcs
 		if total > 0 && total != shown {
-			b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %d/%d", shown, total)))
+			head += SubtleStyle.Render(fmt.Sprintf("  %d/%d", shown, total))
 		} else {
-			b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %d", shown)))
+			head += SubtleStyle.Render(fmt.Sprintf("  %d", shown))
 		}
 	}
 	if state.TreeView {
-		b.WriteString(SubtleStyle.Render("  [tree]"))
+		head += SubtleStyle.Render("  [tree]")
 	}
 	if state.HideSystem {
-		b.WriteString(SubtleStyle.Render("  [user]"))
+		head += SubtleStyle.Render("  [user]")
 	}
 	if state.SearchQuery != "" || state.Searching {
 		cursor := ""
 		if state.Searching {
 			cursor = "█"
 		}
-		b.WriteString(SubtleStyle.Render("  /" + state.SearchQuery + cursor))
+		head += SubtleStyle.Render("  /" + state.SearchQuery + cursor)
 	}
-	b.WriteByte('\n')
 
 	if compact {
 		b.WriteString(renderCompactProcessHeader(innerW))
@@ -146,28 +157,24 @@ func RenderProcesses(procs []metrics.ProcessInfo, state ProcessViewState, width,
 				line += strings.Repeat(" ", innerW-visible)
 			}
 			line = strings.TrimPrefix(line, " ")
-			line = lipgloss.NewStyle().
-				Background(ColorSelectedBg).
-				Bold(true).
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Render("▎" + line)
+			line = selectedRow.Render("▎" + line)
 		}
 
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
 
-	return PanelStyle.Width(panelWidth(width)).Render(b.String())
+	return renderPanel(head, "", b.String(), width)
 }
 
 func renderCompactProcessHeader(width int) string {
 	switch {
 	case width >= 42:
 		nameW := width - 22
-		return fmt.Sprintf("  %-5s %-*s %5s %5s", "PID", nameW, "NAME", "CPU%", "MEM%")
+		return fmt.Sprintf("  %-5s %s %5s %5s", "PID", padTo("NAME", nameW), "CPU%", "MEM%")
 	case width >= 26:
 		nameW := width - 15
-		return fmt.Sprintf("  %-5s %-*s %5s", "PID", nameW, "NAME", "CPU%")
+		return fmt.Sprintf("  %-5s %s %5s", "PID", padTo("NAME", nameW), "CPU%")
 	default:
 		return fitPlain("  PID NAME", width)
 	}
@@ -175,51 +182,47 @@ func renderCompactProcessHeader(width int) string {
 
 func renderProcessLine(dp displayProc, compact bool, width int) string {
 	p := dp.proc
-	cpuColor := BarColor(p.CPUPercent)
-	memColor := BarColor(float64(p.MemPercent))
 
 	if compact {
 		name := dp.prefix + p.Name
 		switch {
 		case width >= 42:
 			nameW := width - 22
-			return fmt.Sprintf("  %-5d %-*s %s %s",
+			return fmt.Sprintf("  %-5d %s %s %s",
 				p.PID,
-				nameW,
-				fitPlain(name, nameW),
-				lipgloss.NewStyle().Foreground(cpuColor).Width(5).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.CPUPercent)),
-				lipgloss.NewStyle().Foreground(memColor).Width(5).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.MemPercent)),
+				padTo(name, nameW),
+				pctCellCompact[barLevel(p.CPUPercent)].Render(fmt.Sprintf("%.1f", p.CPUPercent)),
+				pctCellCompact[barLevel(float64(p.MemPercent))].Render(fmt.Sprintf("%.1f", p.MemPercent)),
 			)
 		case width >= 26:
 			nameW := width - 15
-			return fmt.Sprintf("  %-5d %-*s %s",
+			return fmt.Sprintf("  %-5d %s %s",
 				p.PID,
-				nameW,
-				fitPlain(name, nameW),
-				lipgloss.NewStyle().Foreground(cpuColor).Width(5).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.CPUPercent)),
+				padTo(name, nameW),
+				pctCellCompact[barLevel(p.CPUPercent)].Render(fmt.Sprintf("%.1f", p.CPUPercent)),
 			)
 		default:
 			return fitPlain(fmt.Sprintf("  %d %s", p.PID, name), width)
 		}
 	}
 
-	user := truncateRunes(p.User, 10)
-	name := fitPlain(dp.prefix+p.Name, 20)
+	user := padTo(p.User, 10)
+	name := padTo(dp.prefix+p.Name, 20)
 	stateChar := stateLabel(p.State)
 
 	thrStr := ""
 	if p.NumThreads > 0 {
-		thrStr = fmt.Sprintf("%d", p.NumThreads)
+		thrStr = strconv.Itoa(int(p.NumThreads))
 	}
 
-	return fmt.Sprintf("  %-7d %s %-10s %-20s %s %s %s",
+	return fmt.Sprintf("  %-7d %s %s %s %s %s %s",
 		p.PID,
-		lipgloss.NewStyle().Foreground(stateColor(p.State)).Width(2).Render(stateChar),
+		stateCell[stateLevel(p.State)].Render(stateChar),
 		user,
 		name,
-		lipgloss.NewStyle().Foreground(ColorSubtle).Width(4).Align(lipgloss.Right).Render(thrStr),
-		lipgloss.NewStyle().Foreground(cpuColor).Width(8).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.CPUPercent)),
-		lipgloss.NewStyle().Foreground(memColor).Width(8).Align(lipgloss.Right).Render(fmt.Sprintf("%.1f", p.MemPercent)),
+		thrCell.Render(thrStr),
+		pctCellWide[barLevel(p.CPUPercent)].Render(fmt.Sprintf("%.1f", p.CPUPercent)),
+		pctCellWide[barLevel(float64(p.MemPercent))].Render(fmt.Sprintf("%.1f", p.MemPercent)),
 	)
 }
 
@@ -351,15 +354,16 @@ func stateLabel(state string) string {
 }
 
 // stateColor returns a color for a process state badge.
-func stateColor(state string) lipgloss.Color {
+// stateLevel maps a process state to a severity level.
+func stateLevel(state string) level {
 	switch state {
 	case "running":
-		return ColorGreen
+		return levelGreen
 	case "zombie":
-		return ColorRed
+		return levelRed
 	case "stopped", "stop":
-		return ColorYellow
+		return levelYellow
 	default:
-		return ColorSubtle
+		return levelSubtle
 	}
 }

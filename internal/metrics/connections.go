@@ -1,9 +1,10 @@
 package metrics
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	gnet "github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
@@ -117,17 +118,17 @@ func CollectConnections(ctx context.Context) (NetConnections, error) {
 		})
 	}
 
-	sort.Slice(listening, func(i, j int) bool {
-		if listening[i].Port != listening[j].Port {
-			return listening[i].Port < listening[j].Port
+	slices.SortFunc(listening, func(a, b PortInfo) int {
+		if c := cmp.Compare(a.Port, b.Port); c != 0 {
+			return c
 		}
-		return listening[i].Proto < listening[j].Proto
+		return cmp.Compare(a.Proto, b.Proto)
 	})
-	sort.Slice(connections, func(i, j int) bool {
-		if connections[i].Process != connections[j].Process {
-			return connections[i].Process < connections[j].Process
+	slices.SortFunc(connections, func(a, b ConnectionInfo) int {
+		if c := cmp.Compare(a.Process, b.Process); c != 0 {
+			return c
 		}
-		return connections[i].Raddr < connections[j].Raddr
+		return cmp.Compare(a.Raddr, b.Raddr)
 	})
 
 	return NetConnections{

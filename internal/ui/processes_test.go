@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -46,5 +47,19 @@ func TestTreeDisplayOrderHelpers(t *testing.T) {
 	}
 	if pid != 10 {
 		t.Fatalf("PID at tree display index 0 = %d, want 10", pid)
+	}
+}
+
+// TestProcessPanelChromeMatchesRender pins ProcessPanelChrome against what
+// RenderProcesses actually emits, so callers can size the process viewport
+// without rendering a throwaway panel to count lines.
+func TestProcessPanelChromeMatchesRender(t *testing.T) {
+	for _, w := range []int{30, 60, 80, 120, 200} {
+		for _, st := range []ProcessViewState{{}, {TreeView: true}, {Searching: true, SearchQuery: "x"}} {
+			got := strings.Count(RenderProcesses(nil, st, w, 0), "\n") + 1
+			if got != ProcessPanelChrome {
+				t.Errorf("width %d state %+v: chrome = %d, want %d", w, st, got, ProcessPanelChrome)
+			}
+		}
 	}
 }

@@ -8,36 +8,47 @@ import (
 	"github.com/youhide/hideTop/internal/metrics"
 )
 
+// RenderCPU renders the CPU panel with per-core bars.
 func RenderCPU(cpu metrics.CPUStats, width int, history []float64) string {
+	return RenderCPUCompact(cpu, width, history, false)
+}
+
+// RenderCPUCompact renders the CPU panel, optionally hiding the per-core bars.
+// On a short terminal the per-core rows are what stands between the process
+// list and a usable number of rows, so the caller can drop them and keep the
+// total plus the sparkline.
+func RenderCPUCompact(cpu metrics.CPUStats, width int, history []float64, compact bool) string {
 	var b strings.Builder
 	innerW := contentWidth(width)
 
-	b.WriteString(HeaderStyle.Render("CPU"))
+	head := HeaderStyle.Render("CPU")
 	n := len(cpu.PerCore)
 	if n > 0 {
-		b.WriteString(SubtleStyle.Render(fmt.Sprintf("  %d cores", n)))
+		head += SubtleStyle.Render(fmt.Sprintf("  %d cores", n))
 	}
-	b.WriteByte('\n')
 
 	totalLabel := fmt.Sprintf("TOTAL %5.1f%%", cpu.Total)
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render(renderBar(cpu.Total, totalLabel, innerW)))
+	b.WriteString(boldStyle.Render(renderBar(cpu.Total, totalLabel, innerW)))
 	b.WriteByte('\n')
 
-	if innerW < 36 {
-		for i := 0; i < n; i++ {
+	switch {
+	case compact:
+		// Per-core bars omitted; TOTAL and the sparkline carry the signal.
+	case innerW < 36:
+		for i := range n {
 			label := fmt.Sprintf("c%d %4.0f%%", i, cpu.PerCore[i])
 			b.WriteString(renderBar(cpu.PerCore[i], label, innerW))
 			if i < n-1 {
 				b.WriteByte('\n')
 			}
 		}
-	} else {
+	default:
 		// Two-column layout: left = cpu0..cpu4, right = cpu5..cpu9
 		half := (n + 1) / 2
 		colWidth := (innerW - 2) / 2
 
 		var leftCol, rightCol strings.Builder
-		for i := 0; i < half; i++ {
+		for i := range half {
 			label := fmt.Sprintf("cpu%-2d %5.1f%%", i, cpu.PerCore[i])
 			leftCol.WriteString(renderBar(cpu.PerCore[i], label, colWidth))
 			if i < half-1 {
@@ -64,7 +75,7 @@ func RenderCPU(cpu metrics.CPUStats, width int, history []float64) string {
 		b.WriteString(RenderSparklineCompact("cpu", history, innerW))
 	}
 
-	return PanelStyle.Width(panelWidth(width)).Render(b.String())
+	return renderPanel(head, "", b.String(), width)
 }
 
 func renderBar(pct float64, label string, maxWidth int) string {
@@ -89,9 +100,8 @@ func renderBar(pct float64, label string, maxWidth int) string {
 	}
 	empty := barWidth - filled
 
-	color := BarColor(pct)
-	filledStyle := lipgloss.NewStyle().Foreground(color)
-	emptyStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	filledStyle := levelText[barLevel(pct)]
+	emptyStyle := barEmpty
 
 	return fmt.Sprintf("%s [%s%s]",
 		label,

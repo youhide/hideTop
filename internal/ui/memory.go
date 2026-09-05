@@ -11,8 +11,7 @@ func RenderMemory(mem metrics.MemoryStats, load metrics.LoadAvg, width int, hist
 	var b strings.Builder
 	innerW := contentWidth(width)
 
-	b.WriteString(HeaderStyle.Render("Memory"))
-	b.WriteByte('\n')
+	head := HeaderStyle.Render("Memory")
 
 	label := fmt.Sprintf("used %5.1f%%  %.1f/%.1f GiB", mem.Percent, mem.UsedGB, mem.TotalGB)
 	b.WriteString(renderBar(mem.Percent, label, innerW))
@@ -32,5 +31,5 @@ func RenderMemory(mem metrics.MemoryStats, load metrics.LoadAvg, width int, hist
 		b.WriteString(RenderSparklineCompact("mem", history, innerW))
 	}
 
-	return PanelStyle.Width(panelWidth(width)).Render(b.String())
+	return renderPanel(head, "", b.String(), width)
 }

@@ -37,28 +37,14 @@ func Collect(
 	)
 
 	processesDue := shouldCollectProcesses(now, processSampleEvery, sortBy, previous)
-
-	// Count workers: cpu + memory + load + network + disk + battery = 6
-	workers := 6
-	if !opts.SkipTemp {
-		workers++
-	}
-	if !opts.SkipGPU {
-		workers++
-	}
-	if processesDue {
-		workers++
-	} else {
+	if !processesDue {
 		snap.Processes = previous.Processes
 		snap.ProcessSampleAt = previous.ProcessSampleAt
 		snap.ProcessSortBy = sortBy
 	}
 
-	wg.Add(workers)
-
 	if !opts.SkipTemp {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			t, err := CollectTemperature(ctx)
 			mu.Lock()
 			defer mu.Unlock()
@@ -70,11 +56,10 @@ func Collect(
 				return
 			}
 			snap.Temperature = t
-		}()
+		})
 	}
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		c, err := CollectCPU(ctx, cpuInterval)
 		mu.Lock()
 		defer mu.Unlock()
@@ -86,10 +71,9 @@ func Collect(
 			return
 		}
 		snap.CPU = c
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		m, err := CollectMemory(ctx)
 		mu.Lock()
 		defer mu.Unlock()
@@ -101,10 +85,9 @@ func Collect(
 			return
 		}
 		snap.Memory = m
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		l, err := CollectLoad(ctx)
 		mu.Lock()
 		defer mu.Unlock()
@@ -116,10 +99,9 @@ func Collect(
 			return
 		}
 		snap.Load = l
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		n, err := CollectNetwork(ctx)
 		mu.Lock()
 		defer mu.Unlock()
@@ -131,10 +113,9 @@ func Collect(
 			return
 		}
 		snap.Network = n
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		d, err := CollectDisk(ctx)
 		mu.Lock()
 		defer mu.Unlock()
@@ -146,10 +127,9 @@ func Collect(
 			return
 		}
 		snap.Disk = d
-	}()
+	})
 
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		b, err := CollectBattery(ctx)
 		mu.Lock()
 		defer mu.Unlock()
@@ -161,11 +141,10 @@ func Collect(
 			return
 		}
 		snap.Battery = b
-	}()
+	})
 
 	if processesDue {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			p, err := CollectProcesses(ctx, sortBy, procLimit)
 			mu.Lock()
 			defer mu.Unlock()
@@ -181,25 +160,38 @@ func Collect(
 			snap.Processes = p
 			snap.ProcessSampleAt = now
 			snap.ProcessSortBy = sortBy
-		}()
+		})
 	}
 
 	if !opts.SkipGPU {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			g := gpu.Collect(ctx, 0) // cpuTotal not needed for raw GPU metrics
 			mu.Lock()
 			defer mu.Unlock()
 			if g.Available {
 				snap.GPU = &g
 			} else if previous.GPU != nil && previous.GPU.Available {
-				snap.GPU = previous.GPU
+				// Copy rather than alias: the energy estimate below writes
+				// through this pointer after wg.Wait(), on the collection
+				// goroutine, while the UI goroutine is reading the previous
+				// snapshot's GPU stats in View.
+				stale := *previous.GPU
+				snap.GPU = &stale
 				snap.Status.GPU = staleStatus(errors.New("collector unavailable"))
 			}
-		}()
+		})
 	}
 
-	wg.Wait()
+	if !waitCtx(ctx, &wg) {
+		// A collector is still running past the deadline. Return what we have;
+		// the stragglers write into snap under mu and their results are
+		// dropped with this snapshot. Without this the app would sit on
+		// collecting=true forever and silently stop refreshing.
+		mu.Lock()
+		defer mu.Unlock()
+		snap.Status.Timeout = true
+		return snap
+	}
 
 	// Compute energy impact after all metrics are collected, since it
 	// depends on both CPU and GPU utilization. Skip when CPU data is stale
@@ -209,6 +201,22 @@ func Collect(
 	}
 
 	return snap
+}
+
+// waitCtx waits for wg, giving up if ctx is done first. It reports whether the
+// wait completed.
+func waitCtx(ctx context.Context, wg *sync.WaitGroup) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func shouldCollectProcesses(now time.Time, interval time.Duration, sortBy SortField, previous Snapshot) bool {

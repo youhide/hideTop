@@ -53,6 +53,10 @@ type CollectionStatus struct {
 	Network     MetricStatus
 	Disk        MetricStatus
 	Battery     MetricStatus
+
+	// Timeout is set when Collect gave up waiting for a collector. The
+	// snapshot is still usable; some fields just carry the previous values.
+	Timeout bool
 }
 
 func (s CollectionStatus) HasStale() bool {
@@ -60,7 +64,7 @@ func (s CollectionStatus) HasStale() bool {
 }
 
 func (s CollectionStatus) StaleMetrics() []string {
-	stale := make([]string, 0, 5)
+	stale := make([]string, 0, 9)
 	if s.CPU.Stale {
 		stale = append(stale, "cpu")
 	}

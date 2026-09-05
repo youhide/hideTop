@@ -11,6 +11,12 @@ import (
 // RenderGPU renders the GPU panel. Returns an empty string when GPU
 // metrics are unavailable, causing no visual output.
 func RenderGPU(stats *gpu.Stats, width int, history []float64) string {
+	return RenderGPUCompact(stats, width, history, false)
+}
+
+// RenderGPUCompact renders the GPU panel, optionally dropping the per-engine
+// bars and the frequency/temp/vram detail rows to save vertical space.
+func RenderGPUCompact(stats *gpu.Stats, width int, history []float64, compact bool) string {
 	if stats == nil {
 		return ""
 	}
@@ -28,15 +34,14 @@ func RenderGPU(stats *gpu.Stats, width int, history []float64) string {
 		header += fmt.Sprintf("  %d cores", stats.CoreCount)
 	}
 	header = fitPlain(header, innerW)
-	b.WriteString(HeaderStyle.Render(header))
+	head := HeaderStyle.Render(header)
 	headerWidth := lipgloss.Width(header)
 
 	// Thermal indicator (inline, after header) — only on elevated states
 	if innerW >= 32 && stats.ThermalOK && stats.Thermal > gpu.ThermalNominal {
 		badge := thermalBadge(stats.Thermal)
 		if headerWidth+2+lipgloss.Width(badge) <= innerW {
-			b.WriteString("  ")
-			b.WriteString(badge)
+			head += "  " + badge
 			headerWidth += 2 + lipgloss.Width(badge)
 		}
 	}
@@ -45,20 +50,17 @@ func RenderGPU(stats *gpu.Stats, width int, history []float64) string {
 	if innerW >= 32 && stats.Energy.Available {
 		label := energyLabel(stats.Energy.Score)
 		if headerWidth+2+lipgloss.Width(label) <= innerW {
-			b.WriteString("  ")
-			b.WriteString(label)
+			head += "  " + label
 		}
 	}
 
-	b.WriteByte('\n')
-
 	// Total utilization bar (always shown, bold like CPU TOTAL)
 	totalLabel := fmt.Sprintf("%-8s %5.1f%%", "TOTAL", stats.Utilization)
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render(renderBar(stats.Utilization, totalLabel, innerW)))
+	b.WriteString(boldStyle.Render(renderBar(stats.Utilization, totalLabel, innerW)))
 	b.WriteByte('\n')
 
 	// Per-engine bars when available (Renderer, Tiler, etc.)
-	if len(stats.Engines) > 0 {
+	if !compact && len(stats.Engines) > 0 {
 		for _, eng := range stats.Engines {
 			label := fmt.Sprintf("%-8s %5.1f%%", eng.Name, eng.Utilization)
 			b.WriteString(renderBar(eng.Utilization, label, innerW))
@@ -67,7 +69,7 @@ func RenderGPU(stats *gpu.Stats, width int, history []float64) string {
 	}
 
 	// Frequency (shown only if collected)
-	if stats.FrequencyMHz > 0 {
+	if !compact && stats.FrequencyMHz > 0 {
 		b.WriteString(SubtleStyle.Render(
 			fitPlain(fmt.Sprintf("  freq: %d MHz", stats.FrequencyMHz), innerW),
 		))
@@ -75,16 +77,15 @@ func RenderGPU(stats *gpu.Stats, width int, history []float64) string {
 	}
 
 	// GPU temperature (shown only if collected)
-	if stats.Temperature > 0 {
-		tempColor := TempColor(stats.Temperature)
-		b.WriteString(fmt.Sprintf("  temp: %s",
-			lipgloss.NewStyle().Foreground(tempColor).Render(fmt.Sprintf("%.0f°C", stats.Temperature)),
-		))
+	if !compact && stats.Temperature > 0 {
+		fmt.Fprintf(&b, "  temp: %s",
+			levelText[tempLevel(stats.Temperature)].Render(fmt.Sprintf("%.0f°C", stats.Temperature)),
+		)
 		b.WriteByte('\n')
 	}
 
 	// VRAM usage (shown only for discrete GPUs)
-	if stats.MemoryTotalMB > 0 {
+	if !compact && stats.MemoryTotalMB > 0 {
 		vram := gpu.FormatVRAM(stats.MemoryUsedMB, stats.MemoryTotalMB)
 		b.WriteString(SubtleStyle.Render(fitPlain("  vram: "+vram, innerW)))
 		b.WriteByte('\n')
@@ -96,7 +97,7 @@ func RenderGPU(stats *gpu.Stats, width int, history []float64) string {
 		b.WriteByte('\n')
 	}
 
-	return PanelStyle.Width(panelWidth(width)).Render(b.String())
+	return renderPanel(head, "", b.String(), width)
 }
 
 // thermalBadge renders a small colored label for elevated thermal states.

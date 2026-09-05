@@ -20,33 +20,44 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 - **Responsive layout** — two-column layout at ≥ 110 cols, single-column stacked on narrower terminals
 - **Mouse support** — scroll wheel to navigate the process list, click a row to select; click a PID/CPU%/MEM% column header to sort by it; scrolling over the Temperature or Network panel scrolls that panel to reveal hidden sensors/interfaces
 - **Export** — snapshot to JSON with `e`
-- **Configurable** — CLI flags and `~/.config/hideTop/config.json`
+- **Configurable** — CLI flags and `$XDG_CONFIG_HOME/hideTop/config.json`, or `~/.config/hideTop/config.json` when
+`XDG_CONFIG_HOME` is unset. The debug log goes to `$XDG_STATE_HOME/hideTop/` or
+`~/.local/state/hideTop/`.
 
 ## Keyboard shortcuts
 
 | Key | Action |
-|-----|--------|
-| `↑` `↓` / `j` `k` | Move process selection |
-| `PgUp` `PgDn` | Jump one page up / down |
-| `Home` `End` / `g` `G` | Jump to first / last process |
-| `/` | Start incremental search (name, PID, or user), `Esc` to cancel |
-| `Enter` | Open process detail panel |
+| --- | --- |
+| `↑ / k` | Move up |
+| `↓ / j` | Move down |
+| `PgUp / Ctrl+B` | Jump one page up |
+| `PgDn / Ctrl+F` | Jump one page down |
+| `Home / g` | Jump to first |
+| `End / G` | Jump to last |
+| `Wheel` | Scroll the process list; over Temp/Net panels scrolls those |
+| `Click` | Select a process row |
+| `/` | Start incremental search (name, PID or user) |
+| `Esc` | Cancel search |
+| `Enter` | Open process detail |
+| `Esc / q` | Close the overlay |
 | `c` | Sort by CPU% (descending) |
 | `m` | Sort by MEM% (descending) |
 | `p` | Sort by PID (ascending) |
-| `Space` | Pause / resume metrics auto-refresh |
+| `Click header` | Click a PID/CPU%/MEM% column header to sort |
 | `t` | Toggle tree view |
-| `s` | Toggle system process filter |
-| `z` | Reset Temperature / Network panel scroll |
-| `n` | Open the network / ports view (`Esc` or `n` to close) |
-| `x` | Kill selected process (SIGTERM, asks for confirmation) |
-| `K` | Force kill selected process (SIGKILL, asks for confirmation) |
-| `+` / `=` | Increase refresh interval (+250ms) |
-| `-` / `_` | Decrease refresh interval (-250ms) |
-| `e` | Export snapshot to JSON |
-| `?` | Toggle help overlay |
-| `Esc` | Close help / detail / cancel search |
-| `q` / `Ctrl+C` | Quit |
+| `s` | Toggle the system process filter |
+| `x` | Terminate the selected process (SIGTERM) |
+| `K` | Force kill the selected process (SIGKILL) |
+| `e` | Export a snapshot to JSON |
+| `n` | Open the network / ports view |
+| `1 – 6` | Show/hide the CPU, GPU, memory, temperature, network and disk panels |
+| `Space` | Pause / resume auto-refresh |
+| `z` | Reset the Temp/Network panel scroll |
+| `+ / =` | Increase the refresh interval (+250ms) |
+| `- / _` | Decrease the refresh interval (-250ms) |
+| `?` | Toggle this help overlay |
+| `q` | Quit |
+| `Ctrl+C` | Quit from anywhere |
 
 ## Installation
 
@@ -62,14 +73,14 @@ brew install hidetop
 ## Quick start
 
 ```bash
-go build -o hideTop ./src/
+go build -o hideTop ./cmd/hidetop
 ./hideTop                     # default 1s refresh
 ./hideTop --interval 500ms    # faster refresh
 ./hideTop --theme dracula     # use dracula theme
 ./hideTop --no-gpu --no-temp  # disable GPU and temperature panels
 ./hideTop --version           # print version and exit
 # local build with git tag in --version:
-go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)" -o hideTop ./src/
+go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)" -o hideTop ./cmd/hidetop
 ```
 
 ## Configuration
@@ -79,17 +90,19 @@ CLI flags take precedence over the config file.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--interval` | `1s` | Metrics refresh interval (min 100ms) |
-| `--theme` | `dark` | Colour theme (`dark`, `light`, `dracula`, `nord`, `monokai`) |
+| `--theme` | auto | Colour theme (`dark`, `light`, `dracula`, `nord`, `monokai`); defaults to the terminal background |
 | `--no-gpu` | `false` | Disable GPU metrics |
 | `--no-temp` | `false` | Disable temperature metrics |
 | `--no-ports` | `false` | Disable listening ports / connections collection |
 | `--export-dir` | home | Directory for JSON snapshot exports (`e`); `~` is expanded |
-| `--debug` | `false` | Enable debug logging to stderr |
+| `--debug` | `false` | Write debug logs to a file (path printed on exit) |
 | `--version` / `-v` | — | Print version and exit |
 
 ### Config file
 
-`~/.config/hideTop/config.json`
+`$XDG_CONFIG_HOME/hideTop/config.json`, or `~/.config/hideTop/config.json` when
+`XDG_CONFIG_HOME` is unset. The debug log goes to `$XDG_STATE_HOME/hideTop/` or
+`~/.local/state/hideTop/`.
 
 ```json
 {
@@ -100,22 +113,33 @@ CLI flags take precedence over the config file.
   "no_ports": false,
   "debug": false,
   "export_dir": "~/Desktop",
-  "filter_users": ["root", "_windowserver", "nobody"]
+  "filter_users": ["root", "_windowserver", "nobody"],
+  "proc_limit": 50,
+  "hidden_panels": ["temp", "net"]
 }
 ```
 
-The `filter_users` array controls which usernames are hidden when the system process filter (`s`) is active. Defaults to `["root", "_windowserver", "nobody"]` if not set.
+The `filter_users` array controls which usernames are hidden when the system
+process filter (`s`) is active. Defaults to `["root", "_windowserver", "nobody"]`
+if not set.
+
+`proc_limit` caps how many processes are sampled (default 50). `hidden_panels`
+lists metric panels to start hidden — the number keys `1`–`6` toggle them and
+write the result back here on quit. Hiding panels gives their rows to the
+process list, which is worth doing on a short terminal.
 
 ## Architecture
 
 | Layer | Package | Responsibility |
 |-------|---------|---------------|
-| **Entry** | `src` | Parse config, wire up Bubble Tea, enable mouse & alt screen |
+| **Entry** | `cmd/hidetop` | Parse config, wire up Bubble Tea, enable mouse & alt screen |
 | **App** | `internal/app` | Bubble Tea Model / Update / View, owns the event loop |
 | **Metrics** | `internal/metrics` | CPU, memory, load, processes, temperature, network, disk, battery via gopsutil; concurrent collection with graceful degradation |
 | **GPU** | `internal/metrics/gpu` | Pluggable backends: Apple Silicon (`ioreg`), NVIDIA (`nvidia-smi`), AMD (sysfs). No sudo required |
 | **UI** | `internal/ui` | Pure functions: data in → styled string out. Themes, sparklines, process table, detail overlay |
-| **Config** | `internal/config` | CLI flags + `~/.config/hideTop/config.json` |
+| **Config** | `internal/config` | CLI flags + `$XDG_CONFIG_HOME/hideTop/config.json`, or `~/.config/hideTop/config.json` when
+`XDG_CONFIG_HOME` is unset. The debug log goes to `$XDG_STATE_HOME/hideTop/` or
+`~/.local/state/hideTop/`. |
 
 Key design decisions:
 - **No global mutable state** — all state lives in the Bubble Tea `Model`.
