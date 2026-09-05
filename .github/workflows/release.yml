@@ -4,7 +4,9 @@ on:
   pull_request:
   push:
     tags:
-      - "*"
+      # Version tags only. This used to be "*", so any stray tag published a
+      # release — a leftover tag literally named "push" sat on the remote.
+      - "v*"
   workflow_dispatch:
 
 permissions:
