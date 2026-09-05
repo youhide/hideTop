@@ -154,3 +154,17 @@ func TestCollectingLabelWaitsForSlowness(t *testing.T) {
 		t.Error("header hid 'collecting' for a slow collection")
 	}
 }
+
+// TestTimeoutIsSurfaced pins that a collection which overran its deadline is
+// reported. Collect marks the snapshot, but nothing read the flag, so the user
+// saw partially stale numbers presented as current.
+func TestTimeoutIsSurfaced(t *testing.T) {
+	m := busyModel(130, 33)
+	if strings.Contains(m.renderHeader(130), "timeout") {
+		t.Fatal("header reported a timeout for a clean snapshot")
+	}
+	m.snap.Status.Timeout = true
+	if !strings.Contains(m.renderHeader(130), "timeout") {
+		t.Error("header did not report the collection timeout")
+	}
+}

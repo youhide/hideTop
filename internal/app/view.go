@@ -145,6 +145,12 @@ func (m Model) renderHeader(w int) string {
 	if m.paused {
 		appendHeaderIfRoom("paused", ui.ColorYellow)
 	}
+	if m.snap.Status.Timeout {
+		// A collector overran the deadline, so parts of this snapshot are
+		// carried over from the previous one. Say so rather than presenting
+		// partially stale numbers as current.
+		appendHeaderIfRoom("timeout", ui.ColorYellow)
+	}
 	if stale := m.snap.Status.StaleMetrics(); len(stale) > 0 {
 		label := "stale:" + strings.Join(stale, ",")
 		if w < 40 {
