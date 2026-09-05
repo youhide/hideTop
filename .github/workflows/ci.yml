@@ -45,7 +45,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          # Deliberately newer than the build matrix: golangci-lint is
+          # installed with `go install`, and recent releases need a newer Go to
+          # compile than the version this project targets. It still analyses
+          # the module at the language version go.mod declares.
+          go-version: "stable"
 
       - name: Install golangci-lint
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
