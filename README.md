@@ -62,13 +62,12 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Glo
 ## Installation
 
 ```bash
-brew tap youhide/homebrew-youhide
-brew install hidetop
+brew install youhide/tap/hidetop
 ```
 
 > Recent Homebrew versions require you to trust third-party taps before the
 > first install. If you see `Refusing to load formula ... from untrusted tap`,
-> run `brew trust youhide/youhide` once and re-run the install.
+> run `brew trust youhide/tap` once and re-run the install.
 
 ## Quick start
 
