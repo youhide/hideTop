@@ -153,5 +153,5 @@ Key design decisions:
 
 ## Requirements
 
-- Go 1.25+
+- Go 1.26+
 - macOS or Linux (GPU panel: Apple Silicon, NVIDIA with nvidia-smi, or AMD with sysfs)
